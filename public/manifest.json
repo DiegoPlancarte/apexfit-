@@ -1,0 +1,37 @@
+{
+  "name": "ApexFit — Workout Tracker",
+  "short_name": "ApexFit",
+  "description": "Offline-first progressive overload lifting and running tracker with Google Sheets synchronization.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b0f15",
+  "theme_color": "#0b0f15",
+  "categories": ["fitness", "health", "sports"],
+  "icons": [
+    {
+      "src": "/apexfit-app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/apexfit-icon-only.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
