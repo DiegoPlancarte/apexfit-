@@ -1,0 +1,16 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- ApexFit A-Frame & Barbell Favicon -->
+  <path d="M32 6L49 48H41L32 23L23 48H15L32 6Z" fill="#00D8FF" />
+  <path d="M32 15L43.5 44H37.5L32 29L26.5 44H20.5L32 15Z" fill="#0B0F15" />
+  <!-- Barbell Shaft -->
+  <rect x="12" y="27" width="40" height="4" rx="2" fill="#00D8FF" />
+  <!-- Inner Barbell Plates -->
+  <rect x="18" y="20" width="3.5" height="18" rx="1.5" fill="#00D8FF" />
+  <rect x="42.5" y="20" width="3.5" height="18" rx="1.5" fill="#00D8FF" />
+  <!-- Middle Barbell Plates -->
+  <rect x="14" y="22" width="3" height="14" rx="1.2" fill="#00D8FF" />
+  <rect x="47" y="22" width="3" height="14" rx="1.2" fill="#00D8FF" />
+  <!-- Outer Barbell Plates / Collars -->
+  <rect x="10.5" y="24" width="2.5" height="10" rx="1" fill="#00D8FF" />
+  <rect x="51" y="24" width="2.5" height="10" rx="1" fill="#00D8FF" />
+</svg>
