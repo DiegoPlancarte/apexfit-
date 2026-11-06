@@ -10,7 +10,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import {
-  DEFAULT_HISTORICAL_SESSIONS,
   STORAGE_KEY_HISTORY_LOG,
   getApiUrl,
   normalizeSessionRecord,
@@ -37,32 +36,7 @@ export const STORES = {
   SYNC_OUTBOX: 'sync_outbox',
 };
 
-export const DEFAULT_BODY_METRICS = [
-  {
-    id: 'metric_1',
-    date: '2026-11-02',
-    weightLbs: 178.4,
-    bodyFatPct: 14.8,
-    notes: 'Morning weigh-in, fasted',
-    recordedAt: '2026-11-02T07:15:00.000Z',
-  },
-  {
-    id: 'metric_2',
-    date: '2026-10-26',
-    weightLbs: 179.2,
-    bodyFatPct: 15.0,
-    notes: 'Post-weekend check-in',
-    recordedAt: '2026-10-26T07:30:00.000Z',
-  },
-  {
-    id: 'metric_3',
-    date: '2026-10-19',
-    weightLbs: 180.1,
-    bodyFatPct: 15.2,
-    notes: 'Starting training cycle weigh-in',
-    recordedAt: '2026-10-19T07:20:00.000Z',
-  },
-];
+export const DEFAULT_BODY_METRICS = [];
 
 let dbPromise = null;
 
@@ -98,10 +72,10 @@ const putBatch = (db, storeName, items) =>
  */
 const seedInitialData = async (db) => {
   try {
-    // 1. Seed Sessions
+    // 1. Seed Sessions (restores existing user records from localStorage if present; clean by default)
     const sessionCount = await countRecords(db, STORES.SESSIONS);
     if (sessionCount === 0) {
-      let initialSessions = DEFAULT_HISTORICAL_SESSIONS;
+      let initialSessions = [];
       try {
         const cached = localStorage.getItem(STORAGE_KEY_HISTORY_LOG);
         if (cached) {
@@ -109,9 +83,11 @@ const seedInitialData = async (db) => {
           if (Array.isArray(parsed) && parsed.length > 0) initialSessions = parsed;
         }
       } catch {
-        // fallback to defaults
+        // clean start
       }
-      await putBatch(db, STORES.SESSIONS, initialSessions);
+      if (initialSessions.length > 0) {
+        await putBatch(db, STORES.SESSIONS, initialSessions);
+      }
     }
 
     // 2. Seed Shoe Rotation
@@ -132,10 +108,22 @@ const seedInitialData = async (db) => {
       await putBatch(db, STORES.SHOE_ROTATION, initialShoes);
     }
 
-    // 3. Seed Body Metrics
+    // 3. Seed Body Metrics (clean by default; restores user metrics if present)
     const metricsCount = await countRecords(db, STORES.BODY_METRICS);
     if (metricsCount === 0) {
-      await putBatch(db, STORES.BODY_METRICS, DEFAULT_BODY_METRICS);
+      let initialMetrics = [];
+      try {
+        const cached = localStorage.getItem('workout_tracker_body_metrics_v1');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) initialMetrics = parsed;
+        }
+      } catch {
+        // clean start
+      }
+      if (initialMetrics.length > 0) {
+        await putBatch(db, STORES.BODY_METRICS, initialMetrics);
+      }
     }
   } catch (err) {
     console.warn('seedInitialData encountered an error:', err);
@@ -285,10 +273,10 @@ export const getSessions = async (options = {}) => {
     // Fallback to localStorage for resilient continuity
     try {
       const cached = localStorage.getItem(STORAGE_KEY_HISTORY_LOG);
-      const list = cached ? JSON.parse(cached) : DEFAULT_HISTORICAL_SESSIONS;
+      const list = cached ? JSON.parse(cached) : [];
       return (Array.isArray(list) ? list : []).map(normalizeSessionRecord);
     } catch {
-      return (DEFAULT_HISTORICAL_SESSIONS || []).map(normalizeSessionRecord);
+      return [];
     }
   }
 };
@@ -389,7 +377,7 @@ export const saveSession = async (session) => {
   // Keep localStorage historical log mirror updated
   try {
     const cached = localStorage.getItem(STORAGE_KEY_HISTORY_LOG);
-    const existing = cached ? JSON.parse(cached) : [...DEFAULT_HISTORICAL_SESSIONS];
+    const existing = cached ? JSON.parse(cached) : [];
     const updated = [
       sessionRecord,
       ...existing.filter((s) => s.sessionId !== sessionRecord.sessionId),
@@ -458,7 +446,7 @@ export const getBodyMetrics = async () => {
       req.onerror = () => reject(req.error);
     });
 
-    if (records.length === 0) return DEFAULT_BODY_METRICS;
+    if (records.length === 0) return [];
 
     return records.sort((a, b) => {
       const dateA = new Date(a.date || a.recordedAt || 0).getTime();
@@ -466,7 +454,7 @@ export const getBodyMetrics = async () => {
       return dateB - dateA;
     });
   } catch {
-    return DEFAULT_BODY_METRICS;
+    return [];
   }
 };
 

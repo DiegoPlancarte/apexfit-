@@ -21,7 +21,7 @@ export const DEFAULT_WEEKLY_PLAN = [
     description: 'Bench Press, Incline DB, Lat Pulldowns & Rows',
     targetExercises: ['Barbell Bench Press', 'Incline Dumbbell Press', 'Lat Pulldown'],
     status: 'Scheduled',
-    perfMetric: '14,250 lbs total volume • PR: 185lb Bench',
+    perfMetric: '',
   },
   {
     dayNumber: 2,
@@ -32,7 +32,7 @@ export const DEFAULT_WEEKLY_PLAN = [
     description: 'Back Squats, RDLs, Walking Lunges & Calves',
     targetExercises: ['Barbell Back Squat', 'Romanian Deadlift'],
     status: 'Scheduled',
-    perfMetric: '18,600 lbs total volume • PR: 225lb Squat',
+    perfMetric: '',
   },
   {
     dayNumber: 3,
@@ -42,7 +42,7 @@ export const DEFAULT_WEEKLY_PLAN = [
     badgeLabel: 'Distance Run',
     description: '5km steady pace run (aerobic base building)',
     status: 'Scheduled',
-    perfMetric: '5.0 km • 24:18 (4:51/km) • Season Best',
+    perfMetric: '',
   },
   {
     dayNumber: 4,
@@ -53,7 +53,7 @@ export const DEFAULT_WEEKLY_PLAN = [
     description: 'Overhead Press, Incline Dumbbell & Lateral Raises',
     targetExercises: ['Overhead Shoulder Press', 'Incline Dumbbell Press', 'Lateral Raise'],
     status: 'Scheduled',
-    perfMetric: '11,800 lbs total volume • 11 sets',
+    perfMetric: '',
   },
   {
     dayNumber: 5,
@@ -64,7 +64,7 @@ export const DEFAULT_WEEKLY_PLAN = [
     description: 'Lat Pulldowns, Seated Cable Rows & Bicep Curls',
     targetExercises: ['Lat Pulldown', 'Seated Cable Row'],
     status: 'Scheduled',
-    perfMetric: '13,400 lbs total volume • 12 sets',
+    perfMetric: '',
   },
   {
     dayNumber: 6,
@@ -74,7 +74,7 @@ export const DEFAULT_WEEKLY_PLAN = [
     badgeLabel: 'Sprint Intervals',
     description: '10x 100m Hill Sprints / 30-min Intervals',
     status: 'Scheduled',
-    perfMetric: '10x 100m • Avg 13.6s (Best: 12.9s)',
+    perfMetric: '',
   },
   {
     dayNumber: 7,
@@ -84,6 +84,7 @@ export const DEFAULT_WEEKLY_PLAN = [
     badgeLabel: 'Rest Day',
     description: 'Foam rolling, yoga stretching & 45-min easy walk',
     status: 'Scheduled',
+    perfMetric: '',
   },
 ];
 
@@ -610,119 +611,7 @@ export const updatePlanDayStatus = async (dayNumber, status = 'Completed', overr
 
 export const STORAGE_KEY_HISTORY_LOG = 'workout_tracker_historical_sessions_v1';
 
-export const DEFAULT_HISTORICAL_SESSIONS = [
-  {
-    sessionId: 'sess_hist_1',
-    date: '2026-10-30',
-    workoutName: 'Upper Body Hypertrophy',
-    type: 'workout',
-    startedAt: '2026-10-30T17:15:00.000Z',
-    endedAt: '2026-10-30T18:07:00.000Z',
-    durationSec: 3120,
-    totalSets: 10,
-    totalVolumeLbs: 14850,
-    avgRir: 1.4,
-    highlight: 'PR on Barbell Bench Press (185 lbs × 8)',
-    notes: 'Great energy today. Bench felt stable with solid leg drive.',
-    exercises: [
-      {
-        exerciseName: 'Barbell Bench Press',
-        sets: [
-          { setNumber: 1, weightLbs: 185, reps: 8, rir: 2, setActiveSec: 34, restAfterSec: 90 },
-          { setNumber: 2, weightLbs: 185, reps: 8, rir: 1, setActiveSec: 36, restAfterSec: 90 },
-          { setNumber: 3, weightLbs: 185, reps: 7, rir: 1, setActiveSec: 32, restAfterSec: 90 },
-        ],
-      },
-      {
-        exerciseName: 'Incline Dumbbell Press',
-        sets: [
-          { setNumber: 1, weightLbs: 70, reps: 10, rir: 2, setActiveSec: 38, restAfterSec: 90 },
-          { setNumber: 2, weightLbs: 70, reps: 9, rir: 1, setActiveSec: 35, restAfterSec: 90 },
-          { setNumber: 3, weightLbs: 70, reps: 8, rir: 1, setActiveSec: 34, restAfterSec: 90 },
-        ],
-      },
-      {
-        exerciseName: 'Lat Pulldown',
-        sets: [
-          { setNumber: 1, weightLbs: 140, reps: 10, rir: 2, setActiveSec: 35, restAfterSec: 75 },
-          { setNumber: 2, weightLbs: 140, reps: 10, rir: 1, setActiveSec: 35, restAfterSec: 75 },
-          { setNumber: 3, weightLbs: 140, reps: 9, rir: 1, setActiveSec: 33, restAfterSec: 75 },
-          { setNumber: 4, weightLbs: 140, reps: 8, rir: 0, setActiveSec: 30, restAfterSec: 90 },
-        ],
-      },
-    ],
-  },
-  {
-    sessionId: 'sess_hist_2',
-    date: '2026-10-28',
-    workoutName: 'Zone 2 Recovery Run',
-    type: 'run',
-    startedAt: '2026-10-28T07:30:00.000Z',
-    endedAt: '2026-10-28T07:54:18.000Z',
-    durationSec: 1458,
-    distanceKm: 5.0,
-    distanceMiles: 3.11,
-    avgPace: '7:48 /mi (4:51 /km)',
-    avgHeartRate: 142,
-    terrain: 'Road',
-    splits: 'M1: 8:02 | M2: 7:51 | M3: 7:38 | Rem (0.11m): 7:15/mi',
-    shoeName: 'Nike Pegasus 40',
-    highlight: 'Season Best 5k Pace (24:18)',
-    notes: 'Crisp morning air along the river trail. Felt easy throughout.',
-  },
-  {
-    sessionId: 'sess_hist_3',
-    date: '2026-10-26',
-    workoutName: 'Lower Body Strength',
-    type: 'workout',
-    startedAt: '2026-10-26T18:00:00.000Z',
-    endedAt: '2026-10-26T18:58:00.000Z',
-    durationSec: 3480,
-    totalSets: 8,
-    totalVolumeLbs: 18600,
-    avgRir: 1.3,
-    highlight: 'Squat 225 lbs × 6 (Top Set)',
-    notes: 'Heavy squats moved crisp. Focused on bracing and hip drive.',
-    exercises: [
-      {
-        exerciseName: 'Barbell Back Squat',
-        sets: [
-          { setNumber: 1, weightLbs: 205, reps: 8, rir: 2, setActiveSec: 40, restAfterSec: 120 },
-          { setNumber: 2, weightLbs: 225, reps: 6, rir: 1, setActiveSec: 35, restAfterSec: 120 },
-          { setNumber: 3, weightLbs: 225, reps: 6, rir: 1, setActiveSec: 36, restAfterSec: 120 },
-          { setNumber: 4, weightLbs: 205, reps: 8, rir: 1, setActiveSec: 38, restAfterSec: 120 },
-        ],
-      },
-      {
-        exerciseName: 'Romanian Deadlift',
-        sets: [
-          { setNumber: 1, weightLbs: 225, reps: 10, rir: 2, setActiveSec: 36, restAfterSec: 120 },
-          { setNumber: 2, weightLbs: 225, reps: 9, rir: 2, setActiveSec: 35, restAfterSec: 120 },
-          { setNumber: 3, weightLbs: 225, reps: 8, rir: 1, setActiveSec: 34, restAfterSec: 120 },
-          { setNumber: 4, weightLbs: 225, reps: 8, rir: 0, setActiveSec: 32, restAfterSec: 120 },
-        ],
-      },
-    ],
-  },
-  {
-    sessionId: 'sess_hist_4',
-    date: '2026-10-24',
-    workoutName: 'Interval Sprint Session',
-    type: 'run',
-    startedAt: '2026-10-24T09:00:00.000Z',
-    endedAt: '2026-10-24T09:30:00.000Z',
-    durationSec: 1800,
-    distanceKm: 4.2,
-    distanceMiles: 2.61,
-    avgPace: '6:50 /mi (4:15 /km)',
-    avgHeartRate: 168,
-    terrain: 'Hills',
-    splits: 'M1: 6:58 | M2: 6:42 | Rem (0.61m): 6:52/mi',
-    shoeName: 'Saucony Endorphin Speed 3',
-    highlight: '10x 100m Hill Sprints completed',
-    notes: '30-minute interval workout. Full recovery walks between reps.',
-  },
-];
+export const DEFAULT_HISTORICAL_SESSIONS = [];
 
 /**
  * Queries the historical `Sessions` and `Sets` from the Google Apps Script Web App endpoint.
@@ -882,7 +771,7 @@ export const buildRunPayload = (runData) => {
 export const saveRunToLocalHistory = (runSession) => {
   try {
     const cached = localStorage.getItem(STORAGE_KEY_HISTORY_LOG);
-    const existing = cached ? JSON.parse(cached) : [...DEFAULT_HISTORICAL_SESSIONS];
+    const existing = cached ? JSON.parse(cached) : [];
     const updated = [runSession, ...existing.filter((s) => s.sessionId !== runSession.sessionId)];
     localStorage.setItem(STORAGE_KEY_HISTORY_LOG, JSON.stringify(updated));
     return updated;
