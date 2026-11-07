@@ -932,13 +932,30 @@ export const syncWorkoutToSheets = async (workoutState, overrideUrl) => {
   }
 
   try {
+    const sessionData = payload.session || {};
+    const postBody = {
+      ...sessionData,
+      ...payload,
+      sessionId: sessionData.sessionId || sessionData.Workout_ID || payload.sessionId,
+      Workout_ID: sessionData.Workout_ID || sessionData.sessionId || payload.Workout_ID,
+      date: sessionData.date || sessionData.Date || payload.date,
+      Date: sessionData.Date || sessionData.date || payload.Date,
+      startTime: sessionData.startTime || sessionData.Start_Time || '',
+      endTime: sessionData.endTime || sessionData.End_Time || '',
+      type: sessionData.type || sessionData.Workout_Type || 'LIFTING',
+      duration: sessionData.duration || sessionData.Total_Duration_Min || 0,
+      distance: sessionData.distance || sessionData.Distance_Miles || 0,
+      session: sessionData,
+      sets: payload.sets,
+    };
+
     const response = await fetch(endpointUrl, {
       method: 'POST',
       headers: {
         // text/plain avoids CORS preflight (OPTIONS) which Google Apps Script doPost does not support
         'Content-Type': 'text/plain;charset=utf-8',
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(postBody),
     });
 
     if (!response.ok) {
@@ -983,20 +1000,41 @@ export const fetchWeeklyPlan = async (overrideUrl) => {
   }
 
   try {
-    const response = await fetch(endpointUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8',
-      },
-      body: JSON.stringify({ action: 'getWeeklyPlan' }),
-    });
+    let data = null;
 
-    if (!response.ok) {
-      throw new Error(`GAS returned status ${response.status}`);
+    // 1. Attempt GET first (directly triggers Apps Script doGet(e))
+    try {
+      const getUrl = endpointUrl.includes('?')
+        ? `${endpointUrl}&action=all`
+        : `${endpointUrl}?action=all`;
+      const getRes = await fetch(getUrl, { method: 'GET' });
+      if (getRes.ok) {
+        const text = await getRes.text();
+        data = JSON.parse(text);
+      }
+    } catch {
+      // Fallback to POST
     }
 
-    const text = await response.text();
-    const data = JSON.parse(text);
+    // 2. Fallback to POST if GET returned no data
+    if (!data) {
+      const response = await fetch(endpointUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify({ action: 'getWeeklyPlan' }),
+      });
+
+      if (response.ok) {
+        const text = await response.text();
+        data = JSON.parse(text);
+      }
+    }
+
+    if (!data) {
+      return DEFAULT_WEEKLY_PLAN;
+    }
 
     // If response is a complete backend bundle (with dailySummary, sessions, etc.), ingest in background
     if (
@@ -1022,7 +1060,7 @@ export const fetchWeeklyPlan = async (overrideUrl) => {
     console.warn('fetchWeeklyPlan falling back to local schedule:', err);
     return DEFAULT_WEEKLY_PLAN;
   }
-}
+};
 
 /**
  * Updates a specific day's status in the Google Sheet `Plan` tab.
@@ -1106,23 +1144,47 @@ export const fetchHistoricalSessions = async (options) => {
   }
 
   try {
-    const payload = {
-      action: 'getHistoricalSessions',
-      startDate: startDate || null,
-      endDate: endDate || null,
-    };
+    let data = null;
 
-    const response = await fetch(endpointUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'text/plain;charset=utf-8',
-      },
-      body: JSON.stringify(payload),
-    });
+    // 1. Attempt GET first (directly triggers Apps Script doGet(e))
+    try {
+      const separator = endpointUrl.includes('?') ? '&' : '?';
+      let getUrl = `${endpointUrl}${separator}action=all`;
+      if (startDate) getUrl += `&startDate=${encodeURIComponent(startDate)}`;
+      if (endDate) getUrl += `&endDate=${encodeURIComponent(endDate)}`;
 
-    if (!response.ok) return filterSessionsByDate(localSessions, startDate, endDate);
-    const text = await response.text();
-    const data = JSON.parse(text);
+      const getRes = await fetch(getUrl, { method: 'GET' });
+      if (getRes.ok) {
+        const text = await getRes.text();
+        data = JSON.parse(text);
+      }
+    } catch {
+      // Fallback to POST
+    }
+
+    // 2. Fallback to POST if GET returned no data
+    if (!data) {
+      const payload = {
+        action: 'getHistoricalSessions',
+        startDate: startDate || null,
+        endDate: endDate || null,
+      };
+
+      const response = await fetch(endpointUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        const text = await response.text();
+        data = JSON.parse(text);
+      }
+    }
+
+    if (!data) return filterSessionsByDate(localSessions, startDate, endDate);
 
     // If response is a complete backend bundle (with plan, dailySummary, etc.), ingest in background
     if (
@@ -1270,12 +1332,26 @@ export const syncRunToSheets = async (runData, overrideUrl) => {
   }
 
   try {
+    const sessionData = payload.session || {};
+    const postBody = {
+      ...sessionData,
+      ...payload,
+      sessionId: sessionData.sessionId || sessionData.Workout_ID || payload.sessionId,
+      Workout_ID: sessionData.Workout_ID || sessionData.sessionId || payload.Workout_ID,
+      date: sessionData.date || sessionData.Date || payload.date,
+      Date: sessionData.Date || sessionData.date || payload.Date,
+      type: sessionData.type || sessionData.Workout_Type || 'Run',
+      duration: sessionData.duration || sessionData.Total_Duration_Min || 0,
+      distance: sessionData.distance || sessionData.Distance_Miles || 0,
+      session: sessionData,
+    };
+
     const response = await fetch(endpointUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'text/plain;charset=utf-8',
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(postBody),
     });
 
     if (!response.ok) {

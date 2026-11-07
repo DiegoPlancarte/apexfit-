@@ -695,6 +695,7 @@ export const normalizeOutboxPayload = (action, rawPayload) => {
       schemaVersion: rawPayload.schemaVersion || '1.0',
       action: 'logWorkoutSession',
       timestamp: rawPayload.timestamp || nowIso,
+      ...normalizedSession,
       session: normalizedSession,
       sets: normalizedSets,
     };
@@ -789,6 +790,7 @@ export const normalizeOutboxPayload = (action, rawPayload) => {
       schemaVersion: rawPayload.schemaVersion || '1.0',
       action: 'logRunWorkout',
       timestamp: rawPayload.timestamp || nowIso,
+      ...normalizedSession,
       session: normalizedSession,
     };
   }
