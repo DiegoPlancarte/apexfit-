@@ -874,11 +874,50 @@ export const useComponentLogic = () => {
         e.sets.some((s) => s.completed)
       );
 
-      if (!hasCompletedSets && dayItem.targetExercises && dayItem.targetExercises.length > 0) {
-        const newExercises = dayItem.targetExercises.map((exerciseName, idx) => {
+      const exercisesToLoad =
+        (Array.isArray(dayItem.targetExercises) && dayItem.targetExercises.length > 0) ||
+        (Array.isArray(dayItem.exerciseTargets) && dayItem.exerciseTargets.length > 0);
+
+      const resolvedDayNumber = Number(dayItem.dayNumber ?? dayItem.Day_Number ?? 1);
+      const resolvedTitle = dayItem.title || dayItem.Workout_Title || 'Workout Session';
+
+      if (!hasCompletedSets && exercisesToLoad) {
+        const exerciseNames =
+          Array.isArray(dayItem.targetExercises) && dayItem.targetExercises.length > 0
+            ? dayItem.targetExercises
+            : (dayItem.exerciseTargets || [])
+                .map((t) => t.exercise || t.exerciseName || t.name)
+                .filter(Boolean);
+
+        const newExercises = exerciseNames.map((exerciseName, idx) => {
+          const targetConfig = Array.isArray(dayItem.exerciseTargets)
+            ? dayItem.exerciseTargets.find(
+                (t) => (t.exercise || t.exerciseName || t.name) === exerciseName
+              ) || dayItem.exerciseTargets[idx]
+            : null;
+
+          const targetSetsCount = targetConfig?.target_sets
+            ? Number(targetConfig.target_sets)
+            : null;
+          const targetRestSec = targetConfig?.rest_sec
+            ? Number(targetConfig.rest_sec)
+            : Number(exerciseRestMap[exerciseName]) || 90;
+
+          let parsedTargetReps = 8;
+          if (targetConfig?.target_reps) {
+            const match = String(targetConfig.target_reps).match(/\d+/);
+            if (match) parsedTargetReps = parseInt(match[0], 10);
+          }
+
+          const targetRir =
+            targetConfig?.target_rir !== undefined && targetConfig?.target_rir !== ''
+              ? Number(targetConfig.target_rir)
+              : 2;
+
           const prevSets = lastSessionHistory[exerciseName] || [];
-          const initialCount = Math.max(2, prevSets.length || 3);
-          const restDurationSec = Number(exerciseRestMap[exerciseName]) || 90;
+          const initialCount = targetSetsCount || Math.max(2, prevSets.length || 3);
+          const restDurationSec = targetRestSec;
+
           return {
             id: `ex_${Date.now()}_${idx}`,
             exerciseName,
@@ -886,9 +925,9 @@ export const useComponentLogic = () => {
             sets: Array.from({ length: initialCount }, (_, sIdx) => {
               const prev = prevSets[sIdx] || prevSets[prevSets.length - 1] || {};
               return createSetRecord(exerciseName, sIdx + 1, {
-                weightLbs: prev.weightLbs ?? 135,
-                reps: prev.reps ?? 8,
-                rir: prev.rir ?? 2,
+                weightLbs: prev.weightLbs ?? '',
+                reps: prev.reps ?? parsedTargetReps,
+                rir: prev.rir ?? targetRir,
                 setActiveSec: prev.active_sec ?? prev.setActiveSec ?? null,
                 restAfterSec: 0,
               });
@@ -898,15 +937,15 @@ export const useComponentLogic = () => {
 
         setWorkoutState((prev) => ({
           ...prev,
-          workoutName: dayItem.title,
-          planDayNumber: dayItem.dayNumber,
+          workoutName: resolvedTitle,
+          planDayNumber: resolvedDayNumber,
           exercises: newExercises,
         }));
       } else {
         setWorkoutState((prev) => ({
           ...prev,
-          planDayNumber: dayItem.dayNumber,
-          workoutName: prev.workoutName || dayItem.title,
+          planDayNumber: resolvedDayNumber,
+          workoutName: prev.workoutName || resolvedTitle,
         }));
       }
 

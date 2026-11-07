@@ -3,14 +3,15 @@ import {
   DEFAULT_WEEKLY_PLAN,
   fetchWeeklyPlan,
   updatePlanDayStatus,
+  normalizeWeeklyPlan,
+  STORAGE_KEY_PLAN,
+  STORAGE_KEY_STEPS,
   STORAGE_KEY_HISTORY_LOG,
   normalizeSessionRecord,
 } from '../../services/api';
 import { getSessions } from '../../services/db';
 import { getLocalDateString } from '../../utils/date';
 
-const STORAGE_KEY_PLAN = 'workout_tracker_weekly_plan_v1';
-const STORAGE_KEY_STEPS = 'workout_tracker_daily_steps_v1';
 const STORAGE_KEY_REST_HABITS = 'workout_tracker_rest_habits_v1';
 const STORAGE_KEY_PERF_METRICS = 'workout_tracker_perf_metrics_v1';
 export const STEP_GOAL = 10000;
@@ -69,7 +70,7 @@ export const useComponentLogic = ({
       const saved = localStorage.getItem(STORAGE_KEY_PLAN);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed) && parsed.length > 0) return normalizeWeeklyPlan(parsed);
       }
     } catch {
       // fallback
@@ -174,8 +175,28 @@ export const useComponentLogic = ({
         console.warn('Initial fetchWeeklyPlan failed:', err);
       });
 
+    const handleStepsUpdated = (e) => {
+      if (e?.detail) {
+        setStepsMap((prev) => ({
+          ...prev,
+          ...e.detail,
+        }));
+      }
+    };
+
+    const handlePlanUpdated = (e) => {
+      if (Array.isArray(e?.detail) && e.detail.length > 0) {
+        setWeeklyPlan(normalizeWeeklyPlan(e.detail));
+      }
+    };
+
+    window.addEventListener('apexfit:steps-updated', handleStepsUpdated);
+    window.addEventListener('apexfit:plan-updated', handlePlanUpdated);
+
     return () => {
       isMounted = false;
+      window.removeEventListener('apexfit:steps-updated', handleStepsUpdated);
+      window.removeEventListener('apexfit:plan-updated', handlePlanUpdated);
     };
   }, []);
 

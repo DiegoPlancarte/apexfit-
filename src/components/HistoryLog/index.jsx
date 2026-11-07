@@ -224,7 +224,13 @@ export default function HistoryLog(props) {
         ) : (
           <>
             {sessions.map((session) => {
-          const isRun = session.type === 'run';
+          const isLifting =
+            session.type === 'workout' ||
+            session.type === 'lifting' ||
+            session.Workout_Type === 'Lifting' ||
+            session.Workout_Type === 'Strength' ||
+            Number(session.totalVolumeLbs) > 0;
+          const isRun = !isLifting;
           const isExpanded = Boolean(isSessionExpanded(session.sessionId));
 
           return (
@@ -254,7 +260,7 @@ export default function HistoryLog(props) {
                         isRun ? 'badge-run' : 'badge-workout'
                       }`}
                     >
-                      {isRun ? 'Distance Run' : 'Lifting Session'}
+                      {session.Workout_Type || (isRun ? 'Distance Run' : 'Lifting Session')}
                     </span>
                     {isRun && session.terrain && (
                       <span className="badge-terrain-pill">
@@ -331,6 +337,15 @@ export default function HistoryLog(props) {
                       <span className="history-metric-label">Avg HR</span>
                       <span className="history-metric-val">
                         {session.avgHeartRate} bpm
+                      </span>
+                    </div>
+                  )}
+
+                  {session.calories != null && session.calories !== '' && (
+                    <div className="history-metric">
+                      <span className="history-metric-label">Calories</span>
+                      <span className="history-metric-val">
+                        {session.calories} kcal
                       </span>
                     </div>
                   )}

@@ -209,21 +209,30 @@ export const useComponentLogic = () => {
     return sDate >= activeStartDate && sDate <= activeEndDate;
   });
 
+  const isLifting = (s) =>
+    s.type === 'workout' ||
+    s.type === 'lifting' ||
+    s.Workout_Type === 'Lifting' ||
+    s.Workout_Type === 'Strength' ||
+    Number(s.totalVolumeLbs) > 0;
+
+  const isCardio = (s) => !isLifting(s);
+
   // Filter by activity type: all | workout | run
   const filteredSessions = scopedSessions.filter((s) => {
     if (filterType === 'all') return true;
-    if (filterType === 'workout') return s.type !== 'run';
-    if (filterType === 'run') return s.type === 'run';
+    if (filterType === 'workout') return isLifting(s);
+    if (filterType === 'run') return isCardio(s);
     return true;
   });
 
   // Aggregated summary stats for the active view
   const totalVolumeLifted = scopedSessions
-    .filter((s) => s.type !== 'run')
+    .filter(isLifting)
     .reduce((sum, s) => sum + (Number(s.totalVolumeLbs) || 0), 0);
 
   const totalMiles = scopedSessions
-    .filter((s) => s.type === 'run')
+    .filter(isCardio)
     .reduce((sum, s) => {
       const mi =
         s.distanceMiles != null
@@ -234,8 +243,8 @@ export const useComponentLogic = () => {
       return sum + (Number.isFinite(mi) ? mi : 0);
     }, 0);
 
-  const totalRunsCount = scopedSessions.filter((s) => s.type === 'run').length;
-  const totalWorkoutsCount = scopedSessions.filter((s) => s.type !== 'run').length;
+  const totalRunsCount = scopedSessions.filter(isCardio).length;
+  const totalWorkoutsCount = scopedSessions.filter(isLifting).length;
 
   const [selectedRunForDetails, setSelectedRunForDetails] = useState(null);
   const [selectedLiftingForReview, setSelectedLiftingForReview] = useState(null);
