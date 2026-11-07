@@ -4,7 +4,7 @@ import {
   fetchHistoricalSessions,
   normalizeSessionRecord,
 } from '../../services/api';
-import { saveSession } from '../../services/db';
+import { getSessions, saveSession } from '../../services/db';
 import { formatFriendlyLocalDate, getLocalDateString } from '../../utils/date';
 import { formatDuration } from '../../utils/format';
 
@@ -97,47 +97,78 @@ export const useComponentLogic = () => {
   const todayMondayIso = formatDateToIso(getMondayOfWeek(new Date()));
   const isCurrentWeek = activeStartDate === todayMondayIso;
 
-  // Initial load from backend / IndexedDB (with query params readiness)
+  // Load archive strictly from local IndexedDB (zero network requests on tab navigation)
   useEffect(() => {
     let isMounted = true;
-    fetchHistoricalSessions({
-      startDate: viewScope === 'week' ? activeStartDate : undefined,
-      endDate: viewScope === 'week' ? activeEndDate : undefined,
-    })
-      .then((data) => {
+    const loadArchive = async () => {
+      try {
+        const queryOpts = {
+          startDate: viewScope === 'week' ? activeStartDate : undefined,
+          endDate: viewScope === 'week' ? activeEndDate : undefined,
+        };
+
+        const local = await getSessions(queryOpts);
+        if (!isMounted) return;
+        if (Array.isArray(local) && local.length > 0) {
+          setSessions(local.map(normalizeSessionRecord));
+          setIsLoading(false);
+          return;
+        }
+
+        // Check if IndexedDB has any historical records overall
+        const allLocal = await getSessions();
+        if (!isMounted) return;
+        if (Array.isArray(allLocal) && allLocal.length > 0) {
+          // Local database has records, but this specific date range has none
+          setSessions([]);
+          setIsLoading(false);
+          return;
+        }
+
+        // Automated fallback (Condition d): local DB is completely empty
+        const remoteData = await fetchHistoricalSessions({
+          ...queryOpts,
+          forceNetwork: false,
+        });
         if (isMounted) {
-          if (Array.isArray(data)) {
-            setSessions(data.map(normalizeSessionRecord));
+          if (Array.isArray(remoteData)) {
+            setSessions(remoteData.map(normalizeSessionRecord));
           }
           setIsLoading(false);
         }
-      })
-      .catch((err) => {
-        console.warn('HistoryLog fetch error:', err);
+      } catch (err) {
+        console.warn('HistoryLog local read error:', err);
         if (isMounted) setIsLoading(false);
-      });
+      }
+    };
+
+    loadArchive();
 
     return () => {
       isMounted = false;
     };
   }, [activeStartDate, activeEndDate, viewScope]);
 
-  // Auto-refresh historical sessions whenever the background sync outbox flushes
+  // When background sync outbox flushes, reload strictly from local IndexedDB (zero network requests)
   useEffect(() => {
-    const handleSyncFlushed = () => {
-      fetchHistoricalSessions({
-        startDate: viewScope === 'week' ? activeStartDate : undefined,
-        endDate: viewScope === 'week' ? activeEndDate : undefined,
-      })
-        .then((data) => {
-          if (Array.isArray(data) && data.length > 0) {
-            setSessions(data.map(normalizeSessionRecord));
-          }
-        })
-        .catch(() => {});
+    let isMounted = true;
+    const handleSyncFlushed = async () => {
+      try {
+        const queryOpts = {
+          startDate: viewScope === 'week' ? activeStartDate : undefined,
+          endDate: viewScope === 'week' ? activeEndDate : undefined,
+        };
+        const local = await getSessions(queryOpts);
+        if (isMounted && Array.isArray(local)) {
+          setSessions(local.map(normalizeSessionRecord));
+        }
+      } catch {
+        // ignore
+      }
     };
     window.addEventListener('apexfit:sync-flushed', handleSyncFlushed);
     return () => {
+      isMounted = false;
       window.removeEventListener('apexfit:sync-flushed', handleSyncFlushed);
     };
   }, [activeStartDate, activeEndDate, viewScope]);
@@ -185,9 +216,10 @@ export const useComponentLogic = () => {
       const data = await fetchHistoricalSessions({
         startDate: viewScope === 'week' ? activeStartDate : undefined,
         endDate: viewScope === 'week' ? activeEndDate : undefined,
+        forceNetwork: true,
       });
-      if (Array.isArray(data) && data.length > 0) {
-        setSessions(data);
+      if (Array.isArray(data)) {
+        setSessions(data.map(normalizeSessionRecord));
       }
     } finally {
       setIsRefreshing(false);

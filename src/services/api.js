@@ -647,7 +647,13 @@ export const groupSetsIntoExercises = (sets = []) => {
 
   sets.forEach((s) => {
     const exName =
-      s.exerciseName || s.Exercise || s.name || `Exercise ${exerciseMap.size + 1}`;
+      s.exerciseName ||
+      s.Exercise_Name ||
+      s.Exercise ||
+      s.exercise_name ||
+      s.exercise ||
+      s.name ||
+      `Exercise ${exerciseMap.size + 1}`;
     if (!exerciseMap.has(exName)) {
       exerciseMap.set(exName, []);
     }
@@ -989,14 +995,37 @@ export const syncWorkoutToSheets = async (workoutState, overrideUrl) => {
 /**
  * Queries the `Plan` tab from the Google Apps Script Web App endpoint.
  * Returns the parsed array of weekly plan items or falls back to DEFAULT_WEEKLY_PLAN.
+ * Enforces local-first policy: only hits the network if forceNetwork is true or local cache is empty.
  *
- * @param {string} [overrideUrl]
+ * @param {string|Object} [options] - overrideUrl string or { overrideUrl, forceNetwork }
  * @returns {Promise<Array>}
  */
-export const fetchWeeklyPlan = async (overrideUrl) => {
+export const fetchWeeklyPlan = async (options) => {
+  const opts = typeof options === 'string' ? { overrideUrl: options } : (options || {});
+  const { overrideUrl, forceNetwork = false } = opts;
+
+  let cachedPlan = null;
+  try {
+    const saved = localStorage.getItem(STORAGE_KEY_PLAN);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        cachedPlan = normalizeWeeklyPlan(parsed);
+      }
+    }
+  } catch {
+    // fallback
+  }
+
+  // Local-first: if cached plan exists and network is not forced, return immediately (zero network requests)
+  if (!forceNetwork && cachedPlan) {
+    return cachedPlan;
+  }
+
   const endpointUrl = overrideUrl || getApiUrl();
-  if (!endpointUrl) {
-    return DEFAULT_WEEKLY_PLAN;
+  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+  if (!endpointUrl || isOffline) {
+    return cachedPlan || DEFAULT_WEEKLY_PLAN;
   }
 
   try {
@@ -1033,7 +1062,7 @@ export const fetchWeeklyPlan = async (overrideUrl) => {
     }
 
     if (!data) {
-      return DEFAULT_WEEKLY_PLAN;
+      return cachedPlan || DEFAULT_WEEKLY_PLAN;
     }
 
     // If response is a complete backend bundle (with dailySummary, sessions, etc.), ingest in background
@@ -1055,10 +1084,10 @@ export const fetchWeeklyPlan = async (overrideUrl) => {
       }
       return normalizedPlan;
     }
-    return DEFAULT_WEEKLY_PLAN;
+    return cachedPlan || DEFAULT_WEEKLY_PLAN;
   } catch (err) {
     console.warn('fetchWeeklyPlan falling back to local schedule:', err);
-    return DEFAULT_WEEKLY_PLAN;
+    return cachedPlan || DEFAULT_WEEKLY_PLAN;
   }
 };
 
@@ -1101,16 +1130,79 @@ export const STORAGE_KEY_HISTORY_LOG = 'workout_tracker_historical_sessions_v1';
 export const DEFAULT_HISTORICAL_SESSIONS = [];
 
 /**
- * Queries the historical `Sessions` and `Sets` from the Google Apps Script Web App endpoint.
- * Returns reverse-chronological list of sessions, falling back to local cache or defaults.
- * Supports optional `startDate` and `endDate` query parameters for server-side & client-side filtering.
+ * Pulls the latest full data bundle from the Google Apps Script Web App endpoint (?action=all).
+ * Enforces strict synchronization policy:
+ * - Triggered during initial app boot (Condition a)
+ * - Triggered on on-demand user sync (Condition c)
+ * Ingests returned weekly plan, daily summaries, sessions, sets, and body metrics directly into IndexedDB & localStorage.
  *
- * @param {string|Object} [options] - overrideUrl string or { overrideUrl, startDate, endDate }
+ * @param {string|Object} [options]
+ * @returns {Promise<Object|null>}
+ */
+export const pullLatestBackendData = async (options) => {
+  const opts = typeof options === 'string' ? { overrideUrl: options } : (options || {});
+  const endpointUrl = opts.overrideUrl || getApiUrl();
+  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+
+  if (!endpointUrl || isOffline) {
+    return null;
+  }
+
+  try {
+    let data = null;
+
+    // 1. Attempt GET first (?action=all)
+    try {
+      const separator = endpointUrl.includes('?') ? '&' : '?';
+      const getUrl = `${endpointUrl}${separator}action=all`;
+      const getRes = await fetch(getUrl, { method: 'GET' });
+      if (getRes.ok) {
+        const text = await getRes.text();
+        data = JSON.parse(text);
+      }
+    } catch {
+      // Fallback to POST
+    }
+
+    // 2. Fallback to POST if GET returned no data
+    if (!data) {
+      const response = await fetch(endpointUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8',
+        },
+        body: JSON.stringify({ action: 'getAllData' }),
+      });
+
+      if (response.ok) {
+        const text = await response.text();
+        data = JSON.parse(text);
+      }
+    }
+
+    if (!data) return null;
+
+    return await ingestBackendSyncBundle(data);
+  } catch (err) {
+    console.warn('pullLatestBackendData error:', err);
+    return null;
+  }
+};
+
+/**
+ * Queries the historical `Sessions` and `Sets` from local IndexedDB or backend Google Sheets.
+ * Enforces a strict local-first, zero-redundancy network policy:
+ * - Reads from local IndexedDB (`ApexFitDB`) first.
+ * - Tab switching / Archive viewing makes 0 network requests when local data is present.
+ * - Only triggers network request under Condition (c) [forceNetwork === true]
+ *   or Condition (d) [automated fallback when local IndexedDB lacks records entirely].
+ *
+ * @param {string|Object} [options] - overrideUrl string or { overrideUrl, startDate, endDate, forceNetwork }
  * @returns {Promise<Array>}
  */
 export const fetchHistoricalSessions = async (options) => {
   const opts = typeof options === 'string' ? { overrideUrl: options } : (options || {});
-  const { overrideUrl, startDate, endDate } = opts;
+  const { overrideUrl, startDate, endDate, forceNetwork = false } = opts;
 
   let localSessions = [];
   try {
@@ -1133,14 +1225,36 @@ export const fetchHistoricalSessions = async (options) => {
     }
   }
 
-  if (!localSessions || localSessions.length === 0) {
-    localSessions = DEFAULT_HISTORICAL_SESSIONS;
+  const filteredLocal = filterSessionsByDate(localSessions, startDate, endDate);
+
+  // LOCAL-FIRST POLICY:
+  // If local records exist for the requested scope and network is not forced, return immediately (zero network requests)
+  if (!forceNetwork && filteredLocal && filteredLocal.length > 0) {
+    return filteredLocal;
   }
 
+  // Check if IndexedDB has any sessions overall
+  let allLocalCount;
+  try {
+    const allSessions = await getSessions();
+    allLocalCount = Array.isArray(allSessions) ? allSessions.length : 0;
+  } catch {
+    allLocalCount = 0;
+  }
+
+  // If local DB is already populated with sessions, but this specific date range has none,
+  // do NOT trigger redundant network requests unless forceNetwork is true!
+  if (!forceNetwork && allLocalCount > 0) {
+    return filteredLocal || [];
+  }
+
+  // At this point:
+  // - Either forceNetwork is true (explicit user refresh / sync action)
+  // - Or allLocalCount === 0 (Condition d: automated fallback because local DB lacks records)
   const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
   const endpointUrl = overrideUrl || getApiUrl();
   if (!endpointUrl || isOffline) {
-    return filterSessionsByDate(localSessions, startDate, endDate);
+    return filteredLocal || [];
   }
 
   try {
@@ -1184,7 +1298,7 @@ export const fetchHistoricalSessions = async (options) => {
       }
     }
 
-    if (!data) return filterSessionsByDate(localSessions, startDate, endDate);
+    if (!data) return filteredLocal || [];
 
     // If response is a complete backend bundle (with plan, dailySummary, etc.), ingest in background
     if (
@@ -1211,10 +1325,10 @@ export const fetchHistoricalSessions = async (options) => {
       }
       return filterSessionsByDate(joinedSessions, startDate, endDate);
     }
-    return filterSessionsByDate(localSessions, startDate, endDate);
+    return filteredLocal || [];
   } catch (err) {
     console.warn('fetchHistoricalSessions using local database:', err);
-    return filterSessionsByDate(localSessions, startDate, endDate);
+    return filteredLocal || [];
   }
 }
 

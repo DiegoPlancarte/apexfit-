@@ -162,17 +162,17 @@ export const useComponentLogic = ({
     }
   }, [perfMetricsMap]);
 
-  // Fetch latest weekly plan from Google Sheets on mount
+  // Load weekly plan from local cache on mount (zero network calls on navigation)
   useEffect(() => {
     let isMounted = true;
-    fetchWeeklyPlan()
+    fetchWeeklyPlan({ forceNetwork: false })
       .then((data) => {
         if (isMounted && Array.isArray(data) && data.length > 0) {
           setWeeklyPlan(data);
         }
       })
       .catch((err) => {
-        console.warn('Initial fetchWeeklyPlan failed:', err);
+        console.warn('Initial fetchWeeklyPlan fallback:', err);
       });
 
     const handleStepsUpdated = (e) => {
@@ -203,7 +203,7 @@ export const useComponentLogic = ({
   const handleRefreshPlan = async () => {
     setIsRefreshing(true);
     try {
-      const freshData = await fetchWeeklyPlan();
+      const freshData = await fetchWeeklyPlan({ forceNetwork: true });
       if (Array.isArray(freshData) && freshData.length > 0) {
         setWeeklyPlan(freshData);
       }

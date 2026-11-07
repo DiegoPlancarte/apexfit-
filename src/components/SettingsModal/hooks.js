@@ -4,7 +4,9 @@ import {
   importBackupData,
   getPendingSyncActions,
   normalizeOutboxPayload,
+  flushSyncOutbox,
 } from '../../services/db';
+import { pullLatestBackendData } from '../../services/api';
 
 /**
  * Custom hook managing the Settings Modal logic:
@@ -26,6 +28,9 @@ export const useComponentLogic = ({ isOpen, onClose, currentPayload, onSaveGasUr
   const [importError, setImportError] = useState('');
   const [pendingOutboxItems, setPendingOutboxItems] = useState([]);
   const [inspectTab, setInspectTab] = useState('active'); // 'active' | 'outbox'
+  const [isManualSyncing, setIsManualSyncing] = useState(false);
+  const [manualSyncMsg, setManualSyncMsg] = useState('');
+  const [manualSyncError, setManualSyncError] = useState('');
 
   const fileInputRef = useRef(null);
 
@@ -156,6 +161,39 @@ export const useComponentLogic = ({ isOpen, onClose, currentPayload, onSaveGasUr
     }
   }, []);
 
+  // On-demand user action via manual sync button in Settings (Condition c)
+  const handleManualSync = useCallback(async () => {
+    setIsManualSyncing(true);
+    setManualSyncMsg('');
+    setManualSyncError('');
+    try {
+      const flushRes = await flushSyncOutbox().catch(() => ({ flushed: 0 }));
+      const pullRes = await pullLatestBackendData();
+
+      const flushedCount = flushRes?.flushed || 0;
+      const sessionsCount = pullRes?.sessions?.length || 0;
+
+      let msg = '✓ Cloud sync complete!';
+      if (flushedCount > 0 || sessionsCount > 0) {
+        const parts = [];
+        if (flushedCount > 0) parts.push(`uploaded ${flushedCount} pending`);
+        if (sessionsCount > 0) parts.push(`synced ${sessionsCount} sessions`);
+        msg = `✓ Cloud sync complete (${parts.join(', ')})!`;
+      }
+      setManualSyncMsg(msg);
+
+      const pending = await getPendingSyncActions().catch(() => []);
+      setPendingOutboxItems(pending || []);
+      setTimeout(() => setManualSyncMsg(''), 4500);
+    } catch (err) {
+      console.error('Manual sync error:', err);
+      setManualSyncError(err?.message || 'Failed to sync with Google Sheets.');
+      setTimeout(() => setManualSyncError(''), 4500);
+    } finally {
+      setIsManualSyncing(false);
+    }
+  }, []);
+
   return {
     showPayload,
     setShowPayload,
@@ -177,5 +215,9 @@ export const useComponentLogic = ({ isOpen, onClose, currentPayload, onSaveGasUr
     handleExportBackup,
     handleTriggerFileInput,
     handleFileChange,
+    isManualSyncing,
+    manualSyncMsg,
+    manualSyncError,
+    handleManualSync,
   };
 }

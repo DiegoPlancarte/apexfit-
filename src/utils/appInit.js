@@ -13,6 +13,7 @@ import {
   flushSyncOutbox,
   getPendingSyncActions,
 } from '../services/db';
+import { pullLatestBackendData } from '../services/api';
 
 export const DEFAULT_MIN_BRANDING_MS = 1200;
 export const DEFAULT_MAX_TIMEOUT_MS = 3500;
@@ -77,6 +78,7 @@ export async function initializeAppFlow(options = {}) {
     onStatusUpdate,
     seedFn = ensureDatabaseSeeded,
     syncFn = flushSyncOutbox,
+    pullFn = pullLatestBackendData,
   } = options;
 
   // 1. Visual branding pacing timer
@@ -111,7 +113,28 @@ export async function initializeAppFlow(options = {}) {
   onStatusUpdate?.('SYNCING WITH GOOGLE SHEETS...');
 
   const syncPromise = Promise.resolve()
-    .then(() => syncFn())
+    .then(async () => {
+      const flushRes = await syncFn().catch((err) => {
+        console.warn('Sync flush error:', err);
+        return { flushed: 0, remaining: 0, error: err };
+      });
+
+      // Condition (a): Initial PWA boot / startup sync pull
+      let pullRes = null;
+      try {
+        if (typeof pullFn === 'function') {
+          pullRes = await pullFn();
+        }
+      } catch (pullErr) {
+        console.warn('Initial backend pull error:', pullErr);
+      }
+
+      return {
+        flushed: flushRes?.flushed || 0,
+        remaining: flushRes?.remaining || 0,
+        pulled: Boolean(pullRes),
+      };
+    })
     .catch((err) => {
       console.warn('Background sync attempt error:', err);
       return { flushed: 0, remaining: 0, error: err };

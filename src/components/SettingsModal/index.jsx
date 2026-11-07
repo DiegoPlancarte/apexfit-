@@ -29,6 +29,10 @@ export default function SettingsModal({
     handleExportBackup,
     handleTriggerFileInput,
     handleFileChange,
+    isManualSyncing,
+    manualSyncMsg,
+    manualSyncError,
+    handleManualSync,
   } = useComponentLogic({
     isOpen,
     onClose,
@@ -99,10 +103,29 @@ export default function SettingsModal({
                 <button type="submit" className="btn-primary">
                   Save Endpoint
                 </button>
+                <button
+                  type="button"
+                  className="btn-backup-action btn-manual-sync"
+                  onClick={handleManualSync}
+                  disabled={isManualSyncing}
+                  title="Flush outbox and pull latest Google Sheets data"
+                >
+                  {isManualSyncing ? '⏳ Syncing Cloud...' : '🔄 Sync Cloud Now'}
+                </button>
                 {saveSuccessMsg && (
                   <span className="settings-saved-badge">✓ {saveSuccessMsg}</span>
                 )}
               </div>
+              {manualSyncMsg && (
+                <div className="backup-status-msg backup-status-success" style={{ marginTop: '0.75rem' }}>
+                  {manualSyncMsg}
+                </div>
+              )}
+              {manualSyncError && (
+                <div className="backup-status-msg backup-status-error" style={{ marginTop: '0.75rem' }}>
+                  ⚠️ {manualSyncError}
+                </div>
+              )}
             </form>
           </div>
 
