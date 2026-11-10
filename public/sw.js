@@ -2,7 +2,7 @@
  * ApexFit Service Worker (Offline-First Asset Caching & Fallback)
  */
 
-const CACHE_NAME = 'apexfit-cache-v1';
+const CACHE_NAME = 'apexfit-cache-v2';
 
 const PRECACHE_ASSETS = [
   '/',
@@ -46,8 +46,15 @@ self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
 
-  // Skip non-GET requests and external API endpoints (e.g. Google Apps Script)
-  if (request.method !== 'GET' || url.origin !== self.location.origin) {
+  // Skip non-GET requests, external API endpoints, and development module requests
+  if (
+    request.method !== 'GET' ||
+    url.origin !== self.location.origin ||
+    url.pathname.startsWith('/src/') ||
+    url.pathname.startsWith('/@') ||
+    url.pathname.includes('node_modules') ||
+    url.search.includes('?t=')
+  ) {
     return;
   }
 
