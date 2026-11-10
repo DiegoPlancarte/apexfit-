@@ -8,6 +8,7 @@ import {
   STORAGE_KEY_STEPS,
   STORAGE_KEY_HISTORY_LOG,
   normalizeSessionRecord,
+  reconcileAndMergeSessions,
 } from '../../services/api';
 import { getSessions } from '../../services/db';
 import { getLocalDateString } from '../../utils/date';
@@ -390,7 +391,8 @@ export const useComponentLogic = ({
       sessions = cached ? JSON.parse(cached) : [];
     }
 
-    const sessionList = (Array.isArray(sessions) ? sessions : []).map(normalizeSessionRecord);
+    const rawSessions = Array.isArray(sessions) ? sessions : [];
+    const sessionList = reconcileAndMergeSessions(rawSessions).map(normalizeSessionRecord);
     const targetDate = dateMeta?.dateStr || '';
     const targetDayNumber = dayItem?.dayNumber;
     const targetSessionId = dayItem?.sessionId || dayItem?.id;
@@ -400,18 +402,21 @@ export const useComponentLogic = ({
       ? sessionList.find((s) => s.sessionId === targetSessionId || s.id === targetSessionId)
       : null;
 
-    // 2. Look up by matching plan day index / day number
-    if (!found && targetDayNumber != null) {
+    // 2. Look up by matching date AND (day number OR workout title)
+    if (!found && targetDate) {
       found = sessionList.find(
         (s) =>
           s.type !== 'run' &&
-          (s.day_index === targetDayNumber ||
-            s.dayNumber === targetDayNumber ||
-            s.planDayNumber === targetDayNumber)
+          (s.date === targetDate || s.Date === targetDate || (s.startedAt && s.startedAt.startsWith(targetDate))) &&
+          ((targetDayNumber != null &&
+            (s.day_index === targetDayNumber || s.dayNumber === targetDayNumber || s.planDayNumber === targetDayNumber)) ||
+            (dayItem.title &&
+              (s.workoutName?.toLowerCase() === dayItem.title.toLowerCase() ||
+                s.Workout_Name?.toLowerCase() === dayItem.title.toLowerCase())))
       );
     }
 
-    // 3. Look up by matching ISO date string
+    // 3. Look up by matching ISO date string alone
     if (!found && targetDate) {
       found = sessionList.find(
         (s) =>
@@ -422,7 +427,18 @@ export const useComponentLogic = ({
       );
     }
 
-    // 4. Look up by matching workout title
+    // 4. Look up by matching plan day index / day number
+    if (!found && targetDayNumber != null) {
+      found = sessionList.find(
+        (s) =>
+          s.type !== 'run' &&
+          (s.day_index === targetDayNumber ||
+            s.dayNumber === targetDayNumber ||
+            s.planDayNumber === targetDayNumber)
+      );
+    }
+
+    // 5. Look up by matching workout title
     if (!found && dayItem.title) {
       found = sessionList.find(
         (s) =>
@@ -511,7 +527,8 @@ export const useComponentLogic = ({
       rawSessions = cached ? JSON.parse(cached) : [];
     }
 
-    const sessionList = (Array.isArray(rawSessions) ? rawSessions : []).map(normalizeSessionRecord);
+    const list = Array.isArray(rawSessions) ? rawSessions : [];
+    const sessionList = reconcileAndMergeSessions(list).map(normalizeSessionRecord);
     const targetDate = dateMeta?.dateStr || '';
     const targetDayNumber = dayItem?.dayNumber;
 

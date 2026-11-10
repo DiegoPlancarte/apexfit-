@@ -3,7 +3,6 @@ import {
   TERRAIN_TYPES,
   getTerrainIcon,
   getStoredShoes,
-  getActiveShoe,
   addMilesToShoe,
   secondsToPace,
 } from '../../services/runningService';
@@ -44,7 +43,7 @@ export const useComponentLogic = ({
   const [durationMinutes, setDurationMinutes] = useState('');
   const [durationSeconds, setDurationSeconds] = useState('');
   const [terrain, setTerrain] = useState('Road');
-  const [shoeId, setShoeId] = useState(() => getActiveShoe()?.id || '');
+  const [shoeId, setShoeId] = useState('');
   const [avgHeartRate, setAvgHeartRate] = useState('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -60,6 +59,7 @@ export const useComponentLogic = ({
       setDistance('');
       setDurationMinutes('');
       setDurationSeconds('');
+      setShoeId('');
       setAvgHeartRate('');
       setNotes('');
       setErrorMsg('');

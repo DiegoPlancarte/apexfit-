@@ -78,6 +78,23 @@ function SessionReviewDialog({
     return { totalVolume, totalSets, avgRir };
   }, [exercises]);
 
+  const displayVolume =
+    computedMetrics.totalVolume > 0
+      ? computedMetrics.totalVolume
+      : Number(normalized.totalVolumeLbs || normalized.Total_Volume_Lbs || 0);
+
+  const displaySets =
+    computedMetrics.totalSets > 0
+      ? computedMetrics.totalSets
+      : Number(normalized.totalSets || normalized.Total_Sets || exercises.reduce((acc, ex) => acc + (ex.sets?.length || 0), 0));
+
+  const displayRir =
+    computedMetrics.avgRir !== null
+      ? computedMetrics.avgRir
+      : normalized.avgRir != null && normalized.avgRir !== ''
+      ? normalized.avgRir
+      : null;
+
   const handleToggleEditMode = () => {
     if (isReadOnly) return;
     if (isEditing) {
@@ -245,7 +262,7 @@ function SessionReviewDialog({
             )}
             <button
               type="button"
-              className="plate-calc-close-btn"
+              className="session-review-close-btn plate-calc-close-btn"
               onClick={onClose}
               disabled={isSaving}
               aria-label="Close session review"
@@ -295,19 +312,19 @@ function SessionReviewDialog({
             <div className="session-metric-pill">
               <span className="session-metric-label">Volume</span>
               <span className="session-metric-val">
-                {computedMetrics.totalVolume.toLocaleString()} lbs
+                {displayVolume.toLocaleString()} lbs
               </span>
             </div>
 
             <div className="session-metric-pill">
               <span className="session-metric-label">Total Sets</span>
-              <span className="session-metric-val">{computedMetrics.totalSets}</span>
+              <span className="session-metric-val">{displaySets}</span>
             </div>
 
             <div className="session-metric-pill">
               <span className="session-metric-label">Avg RIR</span>
               <span className="session-metric-val">
-                {computedMetrics.avgRir !== null ? `@${computedMetrics.avgRir}` : '—'}
+                {displayRir !== null && displayRir !== undefined ? `@${displayRir}` : '—'}
               </span>
             </div>
 
@@ -326,8 +343,23 @@ function SessionReviewDialog({
             )}
           </div>
 
+          {/* Linked Wearable Telemetry Note */}
+          {normalized.isMergedTelemetry && (
+            <div className="session-wearable-sync-note">
+              <span className="wearable-sync-icon">⌚</span>
+              <span className="wearable-sync-text">
+                Merged with <strong>{normalized.wearableAttribution || 'Pixel Watch'}</strong> — biometric heart rate & calorie metrics integrated into this session.
+              </span>
+            </div>
+          )}
+
           {/* Exercise Sets Breakdown */}
           <div className="session-review-exercises">
+            {exercises.length === 0 && (
+              <div className="session-review-empty-exercises">
+                <p>No granular exercise set breakdowns recorded for this workout.</p>
+              </div>
+            )}
             {exercises.map((exercise, exIdx) => (
               <div key={exIdx} className="session-review-exercise-card">
                 <div className="session-exercise-header-row">

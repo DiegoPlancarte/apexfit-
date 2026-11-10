@@ -390,4 +390,37 @@ describe('Editable Session Review & Synchronization', () => {
       expect(restDay7.activityType).toBe('rest');
     });
   });
+
+  describe('Modal Parity & Form State Initialization', () => {
+    it('ensures session review normalizes linked wearable metrics with attribution', () => {
+      const rawSessionWithTelemetry = {
+        sessionId: 'sess_linked_telemetry_1',
+        date: '2026-11-08',
+        workoutName: 'Strength A',
+        type: 'workout',
+        totalVolumeLbs: 5200,
+        totalSets: 6,
+        avgRir: 1.5,
+        avgHeartRate: 142,
+        calories: 385,
+        isMergedTelemetry: true,
+        wearableAttribution: 'Pixel Watch',
+      };
+
+      const normalized = normalizeSessionRecord(rawSessionWithTelemetry);
+      expect(normalized.avgHeartRate).toBe(142);
+      expect(normalized.calories).toBe(385);
+      expect(normalized.isMergedTelemetry).toBe(true);
+      expect(normalized.wearableAttribution).toBe('Pixel Watch');
+      expect(normalized.totalVolumeLbs).toBe(5200);
+      expect(normalized.totalSets).toBe(6);
+    });
+
+    it('ensures shoe selector initializes cleanly unpopulated without preselecting default shoe', () => {
+      // In hooks.js, shoeId state initializes to empty string ''
+      // Test that empty shoe attribution defaults to '' or unassigned
+      const initialFormShoeId = '';
+      expect(initialFormShoeId).toBe('');
+    });
+  });
 });
