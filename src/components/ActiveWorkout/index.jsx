@@ -60,6 +60,14 @@ export default function ActiveWorkout(props) {
           />
         </div>
 
+        {/* Dedicated Workout Coaching Cues / Plan Description Block */}
+        {workoutState.workoutDescription && (
+          <div className="workout-coach-description-block" role="region" aria-label="Workout instructions">
+            <span className="coach-desc-icon" aria-hidden="true">🎯</span>
+            <p className="coach-desc-text">{workoutState.workoutDescription}</p>
+          </div>
+        )}
+
         <div className="session-stats-grid">
           <div className="stat-pill">
             <span className="stat-label">Exercises</span>

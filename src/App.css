@@ -67,6 +67,8 @@
   flex-direction: column;
   justify-content: center;
   min-width: 0;
+  flex: 1;
+  overflow: hidden;
 }
 
 .brand-logo-container {
@@ -88,13 +90,13 @@
   margin: 0;
   font-size: 15px;
   font-weight: 800;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.3px;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  display: flex;
-  align-items: center;
+  display: block;
+  max-width: 100%;
 }
 
 .sr-only {
@@ -2204,16 +2206,20 @@
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid var(--border-subtle);
   color: var(--text-primary);
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 6px;
-  font-size: 16px;
-  font-weight: 700;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
+  line-height: 1;
   transition: all 0.15s ease;
+}
+
+.week-nav-arrow-btn svg {
+  display: block;
 }
 
 .week-nav-arrow-btn:hover:not(:disabled) {
@@ -2254,6 +2260,104 @@
 .week-nav-today-btn:hover {
   background: rgba(59, 130, 246, 0.28);
   color: #fff;
+}
+
+/* Mid-Session Workout Description / Cues Block */
+.workout-coach-description-block {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 10px;
+}
+
+.coach-desc-icon {
+  font-size: 15px;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+
+.coach-desc-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #bae6fd;
+  font-weight: 500;
+}
+
+/* Google Health Auth Warning Banner */
+.google-health-auth-warning-banner {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auth-warning-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #fca5a5;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.auth-warning-text {
+  margin: 0;
+  font-size: 12px;
+  color: #fecaca;
+  line-height: 1.4;
+}
+
+.btn-open-script-editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: #dc2626;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.btn-open-script-editor:hover {
+  background: #b91c1c;
+}
+
+.auth-warning-subtext {
+  font-size: 11px;
+  color: #f87171;
+  margin-top: 2px;
+}
+
+.health-auth-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 999px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.badge-auth-expired {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border: 1px solid rgba(239, 68, 68, 0.5);
 }
 
 /* Week Day Tabs Bar */
@@ -6537,12 +6641,12 @@
 }
 
 .session-review-header {
-  padding: 14px 18px 12px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border-subtle);
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 12px;
+  gap: 10px;
   background: rgba(15, 17, 23, 0.95);
   flex-shrink: 0;
 }
@@ -6550,13 +6654,15 @@
 .session-review-header-left {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
   min-width: 0;
+  flex: 1;
 }
 
 .session-header-badge-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -6585,15 +6691,17 @@
 }
 
 .session-review-title {
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 800;
   color: var(--text-primary);
   margin: 0;
   letter-spacing: -0.3px;
+  line-height: 1.25;
+  word-break: break-word;
 }
 
 .session-review-date {
-  font-size: 12px;
+  font-size: 11.5px;
   color: #94a3b8;
   font-family: var(--font-mono);
 }
@@ -6601,7 +6709,7 @@
 .session-review-header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-shrink: 0;
 }
 

@@ -6,7 +6,13 @@ import {
   normalizeOutboxPayload,
   flushSyncOutbox,
 } from '../../services/db';
-import { pullLatestBackendData } from '../../services/api';
+import {
+  pullLatestBackendData,
+  STORAGE_KEY_HEALTH_AUTH_STATUS,
+  getScriptEditorUrl,
+  isGoogleHealthAuthError,
+  setHealthAuthStatus,
+} from '../../services/api';
 
 /**
  * Custom hook managing the Settings Modal logic:
@@ -16,8 +22,9 @@ import { pullLatestBackendData } from '../../services/api';
  * - Exporting local IndexedDB backup as JSON download
  * - Importing backup JSON file and upserting records
  * - Inspecting normalized Google Sheets schema keys (Sessions, Sets, Outbox)
+ * - Monitoring Google Health OAuth authorization status
  */
-export const useComponentLogic = ({ isOpen, onClose, currentPayload, onSaveGasUrl }) => {
+export const useComponentLogic = ({ isOpen, onClose, currentPayload, onSaveGasUrl, gasUrlInput }) => {
   const [showPayload, setShowPayload] = useState(false);
   const [copiedPayload, setCopiedPayload] = useState(false);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('');
@@ -31,6 +38,28 @@ export const useComponentLogic = ({ isOpen, onClose, currentPayload, onSaveGasUr
   const [isManualSyncing, setIsManualSyncing] = useState(false);
   const [manualSyncMsg, setManualSyncMsg] = useState('');
   const [manualSyncError, setManualSyncError] = useState('');
+  const [healthAuthStatus, setHealthAuthStatusState] = useState(() => {
+    try {
+      return localStorage.getItem(STORAGE_KEY_HEALTH_AUTH_STATUS) || 'OK';
+    } catch {
+      return 'OK';
+    }
+  });
+
+  const scriptEditorUrl = useMemo(() => getScriptEditorUrl(gasUrlInput), [gasUrlInput]);
+
+  useEffect(() => {
+    const handleAuthErr = () => setHealthAuthStatusState('AUTH_REQUIRED');
+    const handleAuthOk = () => setHealthAuthStatusState('OK');
+
+    window.addEventListener('apexfit:health-auth-error', handleAuthErr);
+    window.addEventListener('apexfit:health-auth-ok', handleAuthOk);
+
+    return () => {
+      window.removeEventListener('apexfit:health-auth-error', handleAuthErr);
+      window.removeEventListener('apexfit:health-auth-ok', handleAuthOk);
+    };
+  }, []);
 
   const fileInputRef = useRef(null);
 
@@ -182,11 +211,20 @@ export const useComponentLogic = ({ isOpen, onClose, currentPayload, onSaveGasUr
       }
       setManualSyncMsg(msg);
 
+      if (isGoogleHealthAuthError(pullRes)) {
+        setHealthAuthStatus('AUTH_REQUIRED', pullRes);
+        setHealthAuthStatusState('AUTH_REQUIRED');
+      }
+
       const pending = await getPendingSyncActions().catch(() => []);
       setPendingOutboxItems(pending || []);
       setTimeout(() => setManualSyncMsg(''), 4500);
     } catch (err) {
       console.error('Manual sync error:', err);
+      if (isGoogleHealthAuthError(err)) {
+        setHealthAuthStatus('AUTH_REQUIRED', err);
+        setHealthAuthStatusState('AUTH_REQUIRED');
+      }
       setManualSyncError(err?.message || 'Failed to sync with Google Sheets.');
       setTimeout(() => setManualSyncError(''), 4500);
     } finally {
@@ -219,5 +257,7 @@ export const useComponentLogic = ({ isOpen, onClose, currentPayload, onSaveGasUr
     manualSyncMsg,
     manualSyncError,
     handleManualSync,
+    healthAuthStatus,
+    scriptEditorUrl,
   };
-}
+};

@@ -54,6 +54,68 @@ export default function Dashboard(props) {
     <div className="dashboard-container">
       {/* Static / Sticky Top Section */}
       <div className="dashboard-top-section">
+        {/* Date Navigator: Non-redundant quick switching placed directly at top above Step Goal card */}
+        <section className="dashboard-week-nav-bar" aria-label="Training Week Navigator">
+          <button
+            type="button"
+            className="week-nav-arrow-btn"
+            onClick={handlePrevWeek}
+            disabled={isReadOnly}
+            title="Previous training week"
+            aria-label="Previous week"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="15 18 9 12 15 6" />
+            </svg>
+          </button>
+          <div className="week-nav-center">
+            <span className="week-nav-range-label">{weekRangeDisplay}</span>
+            {!isCurrentWeek && (
+              <button
+                type="button"
+                className="week-nav-today-btn"
+                onClick={handleJumpToCurrentWeek}
+                disabled={isReadOnly}
+                title="Jump back to current week"
+              >
+                Current Week
+              </button>
+            )}
+          </div>
+          <button
+            type="button"
+            className="week-nav-arrow-btn"
+            onClick={handleNextWeek}
+            disabled={isReadOnly}
+            title="Next training week"
+            aria-label="Next week"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <polyline points="9 18 15 12 9 6" />
+            </svg>
+          </button>
+        </section>
+
         {/* 10,000 Daily Step Goal Progress Meter */}
         <section className="step-tracker-card" aria-label="Daily Step Goal Meter">
         <div className="step-tracker-header">
@@ -174,44 +236,6 @@ export default function Dashboard(props) {
             🏃 + Log Run
           </button>
         </div>
-      </section>
-
-      {/* Date Navigator: Non-redundant quick switching between training weeks */}
-      <section className="dashboard-week-nav-bar" aria-label="Training Week Navigator">
-        <button
-          type="button"
-          className="week-nav-arrow-btn"
-          onClick={handlePrevWeek}
-          disabled={isReadOnly}
-          title="Previous training week"
-          aria-label="Previous week"
-        >
-          ‹
-        </button>
-        <div className="week-nav-center">
-          <span className="week-nav-range-label">{weekRangeDisplay}</span>
-          {!isCurrentWeek && (
-            <button
-              type="button"
-              className="week-nav-today-btn"
-              onClick={handleJumpToCurrentWeek}
-              disabled={isReadOnly}
-              title="Jump back to current week"
-            >
-              Current Week
-            </button>
-          )}
-        </div>
-        <button
-          type="button"
-          className="week-nav-arrow-btn"
-          onClick={handleNextWeek}
-          disabled={isReadOnly}
-          title="Next training week"
-          aria-label="Next week"
-        >
-          ›
-        </button>
       </section>
 
       {/* 7-Day Day Selector Bar */}

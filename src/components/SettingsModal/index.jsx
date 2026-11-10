@@ -33,11 +33,14 @@ export default function SettingsModal({
     manualSyncMsg,
     manualSyncError,
     handleManualSync,
+    healthAuthStatus,
+    scriptEditorUrl,
   } = useComponentLogic({
     isOpen,
     onClose,
     currentPayload,
     onSaveGasUrl: onSaveSettings,
+    gasUrlInput,
   });
 
   if (!isOpen) return null;
@@ -80,11 +83,47 @@ export default function SettingsModal({
         <div className="settings-modal-body">
           {/* Section 1: Google Apps Script Web App URL */}
           <div className="settings-section">
-            <h3 className="settings-section-title">Google Sheets Sync Endpoint</h3>
+            <div className="settings-section-title-row">
+              <h3 className="settings-section-title">Google Sheets Sync Endpoint</h3>
+              {healthAuthStatus === 'AUTH_REQUIRED' ? (
+                <span className="health-auth-badge badge-auth-expired" title="Google Health token expired or requires consent">
+                  ⚠️ Auth Expired
+                </span>
+              ) : (
+                <span className="health-auth-badge" style={{ background: 'rgba(16, 185, 129, 0.15)', color: '#34d399', border: '1px solid rgba(16, 185, 129, 0.35)' }}>
+                  ✓ Connected
+                </span>
+              )}
+            </div>
             <p className="settings-section-desc">
               Connect to your deployed Google Apps Script Web App (<code>doPost</code>) to sync
               completed workouts and plan statuses.
             </p>
+
+            {/* Google Health Auth Expired Alert Banner */}
+            {healthAuthStatus === 'AUTH_REQUIRED' && (
+              <div className="google-health-auth-warning-banner" role="alert">
+                <div className="auth-warning-header">
+                  <span className="auth-warning-icon">⚠️</span>
+                  <strong>Google Health Auth Expired</strong>
+                </div>
+                <p className="auth-warning-text">
+                  Google Health wearable telemetry requires re-authorization.
+                </p>
+                <a
+                  href={scriptEditorUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-open-script-editor"
+                  title="Open Google Apps Script editor in a new tab"
+                >
+                  Click here to open Apps Script editor ↗
+                </a>
+                <span className="auth-warning-subtext">
+                  Select <code>authorizeGoogleHealth()</code> in your Apps Script project and click <strong>Run</strong> to re-link your Pixel Watch / Google Health data.
+                </span>
+              </div>
+            )}
 
             <form onSubmit={handleSubmitForm} className="settings-form">
               <label htmlFor="modal-gas-url-input" className="settings-label">

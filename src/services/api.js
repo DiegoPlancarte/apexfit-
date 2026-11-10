@@ -967,15 +967,54 @@ const getSessionTimeMinutes = (session) => {
   return null;
 };
 
-const areActivityTypesCompatible = (typeA, typeB) => {
+const isWithin15MinWindow = (active, wearable) => {
+  const activeStartMin = getSessionTimeMinutes(active);
+  const wearableStartMin = getSessionTimeMinutes(wearable);
+
+  if (activeStartMin === null || wearableStartMin === null) {
+    return false;
+  }
+
+  // Check start time difference within ±15 minutes
+  const startDiff = Math.abs(activeStartMin - wearableStartMin);
+  if (startDiff <= 15) return true;
+
+  // Check interval overlap with 15-minute tolerance
+  const activeDurationMin =
+    Number(active.Total_Duration_Min || (active.durationSec ? active.durationSec / 60 : 0)) || 30;
+  const wearableDurationMin =
+    Number(wearable.Total_Duration_Min || (wearable.durationSec ? wearable.durationSec / 60 : 0)) || 30;
+
+  const activeEndMin = activeStartMin + activeDurationMin;
+  const wearableEndMin = wearableStartMin + wearableDurationMin;
+
+  return wearableStartMin <= activeEndMin + 15 && wearableEndMin >= activeStartMin - 15;
+};
+
+const areActivityTypesCompatible = (typeA, typeB, isWithin15Min = false) => {
   const a = String(typeA || '').toLowerCase().trim();
   const b = String(typeB || '').toLowerCase().trim();
 
   if (a === b) return true;
 
   const isLiftingA = a === 'workout' || a === 'lifting' || a === 'strength';
-  const isLiftingB = b === 'workout' || b === 'lifting' || b === 'strength' || b === 'functional strength training' || b === 'crossfit';
+  const isLiftingB =
+    b === 'workout' ||
+    b === 'lifting' ||
+    b === 'strength' ||
+    b === 'weightlifting' ||
+    b === 'functional strength' ||
+    b === 'functional strength training' ||
+    b === 'crossfit' ||
+    b === 'bodybuilding' ||
+    b === 'gym';
+
   if (isLiftingA && isLiftingB) return true;
+
+  // Gym lifters: Link active strength session with wearable "Walk" / "Treadmill walk" if within ±15-min window
+  if (isLiftingA && isWithin15Min && (b === 'walk' || b === 'walking' || b === 'treadmill walk')) {
+    return true;
+  }
 
   const isRunA = a === 'run' || a === 'running' || a === 'treadmill run' || a === 'outdoor run';
   const isRunB = b === 'run' || b === 'running' || b === 'treadmill run' || b === 'outdoor run';
@@ -989,10 +1028,10 @@ const areActivityTypesCompatible = (typeA, typeB) => {
 };
 
 /**
- * Reconciles and merges passive wearable telemetry (Pixel Watch / Google Health)
- * with active app-tracked lifting and run sessions occurring on the same date/window.
+ * Reconciles and links passive wearable telemetry (Pixel Watch / Google Health)
+ * with active app-tracked lifting and run sessions occurring on the same date within a ±15-min window.
  *
- * Prevents duplicate cards in HistoryLog, attaches composite telemetry
+ * Prevents duplicate cards in Archive/HistoryLog, attaches composite telemetry
  * (heart rate, active calories, GPS splits), and flags `isMergedTelemetry: true`.
  *
  * @param {Array<Object>} sessionsList
@@ -1044,23 +1083,27 @@ export const reconcileAndMergeSessions = (sessionsList = []) => {
       const wearableDate = wearable.date || (wearable.startedAt ? wearable.startedAt.split('T')[0] : '');
       if (activeDate !== wearableDate) continue;
 
+      const within15Min = isWithin15MinWindow(active, wearable);
       const typeMatch = areActivityTypesCompatible(
         active.type || active.Workout_Type,
-        wearable.type || wearable.Workout_Type
+        wearable.type || wearable.Workout_Type,
+        within15Min
       );
 
-      let score = 0;
-      if (typeMatch) score += 50;
+      if (!typeMatch) continue;
+
+      let score = 50;
+      if (within15Min) {
+        score += 50;
+      }
 
       const wearableTimeMin = getSessionTimeMinutes(wearable);
       if (activeTimeMin !== null && wearableTimeMin !== null) {
         const diffMin = Math.abs(activeTimeMin - wearableTimeMin);
         if (diffMin <= 90) {
           score += Math.max(0, 90 - diffMin);
-        } else if (!typeMatch) {
-          continue;
         }
-      } else if (typeMatch) {
+      } else {
         score += 20;
       }
 
@@ -1118,6 +1161,7 @@ export const reconcileAndMergeSessions = (sessionsList = []) => {
       }
 
       active.isMergedTelemetry = true;
+      active.linkedWearableId = bestMatch.sessionId || bestMatch.Workout_ID;
       active.wearableAttribution = wearableSource;
       active.rawSource = compositeSource;
       active.Raw_Source = compositeSource;
@@ -1135,6 +1179,88 @@ export const reconcileAndMergeSessions = (sessionsList = []) => {
     const timeB = new Date(b.startedAt || b.date || 0).getTime();
     return timeB - timeA;
   });
+};
+
+export const STORAGE_KEY_HEALTH_AUTH_STATUS = 'apexfit_google_health_auth_status';
+
+/**
+ * Parses Google Apps Script responses to identify expired or missing Google Health OAuth authorization.
+ *
+ * @param {any} payload - Raw API response
+ * @returns {boolean} True if Google Health auth is required/expired
+ */
+export const isGoogleHealthAuthError = (payload) => {
+  if (!payload) return false;
+  if (typeof payload === 'string') {
+    const lower = payload.toLowerCase();
+    return (
+      lower.includes('auth_required') ||
+      lower.includes('not authorized yet') ||
+      lower.includes('auth expired') ||
+      lower.includes('authorizegooglehealth') ||
+      lower.includes('authorization required') ||
+      lower.includes('invalid_grant') ||
+      lower.includes('token expired')
+    );
+  }
+  if (typeof payload === 'object') {
+    const status = String(payload.status || payload.code || '').toUpperCase();
+    if (status === 'AUTH_REQUIRED' || status === 'UNAUTHORIZED' || status === 'AUTH_EXPIRED') {
+      return true;
+    }
+    const msg = String(payload.message || payload.error || payload.details || '').toLowerCase();
+    return (
+      msg.includes('not authorized yet') ||
+      msg.includes('auth expired') ||
+      msg.includes('auth_required') ||
+      msg.includes('authorizegooglehealth') ||
+      msg.includes('authorization required') ||
+      msg.includes('invalid_grant') ||
+      msg.includes('token expired')
+    );
+  }
+  return false;
+};
+
+/**
+ * Extracts the direct Google Apps Script project editor link from a Web App deployment URL.
+ *
+ * @param {string} [gasUrl] - Web App execution URL
+ * @returns {string} Direct link to the Apps Script editor
+ */
+export const getScriptEditorUrl = (gasUrl = '') => {
+  const url = gasUrl || getApiUrl();
+  if (!url) return 'https://script.google.com/home';
+  const match = url.match(/\/macros\/s\/([^/]+)/);
+  if (match && match[1]) {
+    return `https://script.google.com/home/projects/${match[1]}/edit`;
+  }
+  return 'https://script.google.com/home';
+};
+
+/**
+ * Dispatches an event and updates localStorage when Google Health auth status changes.
+ *
+ * @param {'OK'|'AUTH_REQUIRED'} status
+ * @param {any} [details]
+ */
+export const setHealthAuthStatus = (status, details = null) => {
+  try {
+    localStorage.setItem(STORAGE_KEY_HEALTH_AUTH_STATUS, status);
+  } catch {
+    // ignore
+  }
+  if (typeof window !== 'undefined') {
+    if (status === 'AUTH_REQUIRED') {
+      window.dispatchEvent(
+        new CustomEvent('apexfit:health-auth-error', { detail: details })
+      );
+    } else {
+      window.dispatchEvent(
+        new CustomEvent('apexfit:health-auth-ok', { detail: details })
+      );
+    }
+  }
 };
 
 /**
@@ -1211,7 +1337,11 @@ export const syncWorkoutToSheets = async (workoutState, overrideUrl) => {
 
     const text = await response.text();
     try {
-      return JSON.parse(text);
+      const parsed = JSON.parse(text);
+      if (isGoogleHealthAuthError(parsed)) {
+        setHealthAuthStatus('AUTH_REQUIRED', parsed);
+      }
+      return parsed;
     } catch {
       return { status: 'ok', rawResponse: text, payload };
     }
@@ -1417,6 +1547,12 @@ export const pullLatestBackendData = async (options) => {
 
     if (!data) return null;
 
+    if (isGoogleHealthAuthError(data)) {
+      setHealthAuthStatus('AUTH_REQUIRED', data);
+    } else {
+      setHealthAuthStatus('OK', data);
+    }
+
     return await ingestBackendSyncBundle(data);
   } catch (err) {
     console.warn('pullLatestBackendData error:', err);
@@ -1535,6 +1671,12 @@ export const fetchHistoricalSessions = async (options) => {
     }
 
     if (!data) return filteredLocal || [];
+
+    if (isGoogleHealthAuthError(data)) {
+      setHealthAuthStatus('AUTH_REQUIRED', data);
+    } else {
+      setHealthAuthStatus('OK', data);
+    }
 
     // If response is a complete backend bundle (with plan, dailySummary, etc.), ingest in background
     if (

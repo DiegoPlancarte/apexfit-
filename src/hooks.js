@@ -66,6 +66,7 @@ const createInitialWorkoutState = (
   return {
     sessionId: `sess_${Date.now()}`,
     workoutName: 'Upper Body Hypertrophy',
+    workoutDescription: 'Focus on clean eccentric control, scapular retraction on pressing, and progressive overload.',
     startedAt: null, // Started manually via topbar Start button
     notes: '',
     exercises: starterExercises.map((exerciseName, idx) => {
@@ -947,12 +948,14 @@ export const useComponentLogic = () => {
           ...prev,
           workoutName: resolvedTitle,
           planDayNumber: resolvedDayNumber,
+          workoutDescription: dayItem.description || dayItem.Description || prev.workoutDescription || '',
           exercises: newExercises,
         }));
       } else {
         setWorkoutState((prev) => ({
           ...prev,
           planDayNumber: resolvedDayNumber,
+          workoutDescription: dayItem.description || dayItem.Description || prev.workoutDescription || '',
           workoutName: prev.workoutName || resolvedTitle,
         }));
       }

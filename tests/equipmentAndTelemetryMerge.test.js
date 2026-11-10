@@ -12,6 +12,8 @@ import {
   isWearableSource,
   buildWorkoutPayload,
   joinSessionsAndSets,
+  isGoogleHealthAuthError,
+  getScriptEditorUrl,
 } from '../src/services/api';
 import { getMondayOfWeek, getSundayOfWeek, formatWeekRangeDisplay, formatDateToIso } from '../src/components/HistoryLog/hooks';
 
@@ -370,5 +372,115 @@ describe('Passive Wearable Telemetry Reconciliation (Pixel Watch / Google Health
     // Dual DBs 35 * 2 * 10 = 700 lbs
     expect(result[0].totalVolumeLbs).toBe(700);
     expect(result[0].isMergedTelemetry).toBe(true);
+  });
+
+  it('links overlapping native Strength workout and Pixel Watch Weightlifting/Walk within ±15 minutes', () => {
+    // App strength workout: 17:00 to 17:45 (45 min)
+    const activeStrength = {
+      sessionId: 'sess_strength_evening',
+      date: '2026-11-09',
+      Start_Time: '17:00',
+      Total_Duration_Min: 45,
+      type: 'workout',
+      Workout_Type: 'Strength',
+      workoutName: 'Chest & Back',
+      totalVolumeLbs: 6400,
+      totalSets: 10,
+      avgRir: 2.5,
+      rawSource: 'ApexFit',
+      exercises: [
+        {
+          exerciseName: 'Dumbbell Bench Press',
+          sets: [{ weightLbs: 50, reps: 10, rir: 2 }],
+        },
+      ],
+    };
+
+    // Pixel Watch synced a "Weightlifting" session starting at 17:08 (within 8 minutes of app workout)
+    const watchWeightlifting = {
+      sessionId: 'watch_lifting_evening',
+      Date: '2026-11-09',
+      Start_Time: '17:08',
+      Total_Duration_Min: 38,
+      Workout_Type: 'Weightlifting',
+      Avg_HR: 135,
+      Calories: 410,
+      Raw_Source: 'Pixel Watch / Google Health',
+    };
+
+    const linked = reconcileAndMergeSessions([activeStrength, watchWeightlifting]);
+
+    // Grouped into a single unified card
+    expect(linked).toHaveLength(1);
+    const unified = linked[0];
+    expect(unified.sessionId).toBe('sess_strength_evening');
+    expect(unified.totalVolumeLbs).toBe(6400);
+    expect(unified.avgRir).toBe(2.5);
+    expect(unified.exercises).toHaveLength(1);
+    expect(unified.avgHeartRate).toBe(135);
+    expect(unified.calories).toBe(410);
+    expect(unified.isMergedTelemetry).toBe(true);
+    expect(unified.linkedWearableId).toBe('watch_lifting_evening');
+  });
+
+  it('links overlapping native Strength workout and gym warm-up Walk within ±15 minutes', () => {
+    // App strength workout: 18:00
+    const activeStrength = {
+      sessionId: 'sess_gym',
+      date: '2026-11-09',
+      Start_Time: '18:00',
+      Total_Duration_Min: 50,
+      type: 'workout',
+      Workout_Type: 'Strength',
+      workoutName: 'Leg Day',
+      totalVolumeLbs: 9000,
+      totalSets: 12,
+      rawSource: 'ApexFit',
+      exercises: [{ exerciseName: 'Goblet Squat', sets: [{ weightLbs: 70, reps: 10 }] }],
+    };
+
+    // Pixel Watch auto-tracked a warm-up treadmill walk starting at 17:52 (8 min prior)
+    const watchWalk = {
+      sessionId: 'watch_warmup_walk',
+      Date: '2026-11-09',
+      Start_Time: '17:52',
+      Total_Duration_Min: 12,
+      Workout_Type: 'Walk',
+      Avg_HR: 105,
+      Calories: 85,
+      Distance_Miles: 0.6,
+      Raw_Source: 'Pixel Watch / Google Health',
+    };
+
+    const linked = reconcileAndMergeSessions([activeStrength, watchWalk]);
+
+    // Merged into single card preserving lifting sets and watch HR/calories/distance
+    expect(linked).toHaveLength(1);
+    const unified = linked[0];
+    expect(unified.totalVolumeLbs).toBe(9000);
+    expect(unified.avgHeartRate).toBe(105);
+    expect(unified.calories).toBe(85);
+    expect(unified.distanceMiles).toBe(0.6);
+    expect(unified.isMergedTelemetry).toBe(true);
+  });
+});
+
+describe('Google Health Auth Expiration Handling (AUTH_REQUIRED)', () => {
+  it('detects AUTH_REQUIRED and auth expiration strings and payload objects', () => {
+    expect(isGoogleHealthAuthError({ status: 'AUTH_REQUIRED' })).toBe(true);
+    expect(isGoogleHealthAuthError({ status: 'error', message: 'Not authorized yet. Run authorizeGoogleHealth() in script editor.' })).toBe(true);
+    expect(isGoogleHealthAuthError({ error: 'invalid_grant: token expired' })).toBe(true);
+    expect(isGoogleHealthAuthError('Error: AUTH_REQUIRED')).toBe(true);
+    expect(isGoogleHealthAuthError('Not authorized yet')).toBe(true);
+    expect(isGoogleHealthAuthError({ status: 'ok', data: [] })).toBe(false);
+    expect(isGoogleHealthAuthError(null)).toBe(false);
+  });
+
+  it('generates direct Google Apps Script project editor link from deployment URL', () => {
+    const deploymentUrl = 'https://script.google.com/macros/s/AKfycbz_12345abcdef/exec';
+    const editorUrl = getScriptEditorUrl(deploymentUrl);
+    expect(editorUrl).toBe('https://script.google.com/home/projects/AKfycbz_12345abcdef/edit');
+
+    expect(getScriptEditorUrl('')).toBe('https://script.google.com/home');
   });
 });

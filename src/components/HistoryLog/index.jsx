@@ -267,9 +267,9 @@ export default function HistoryLog(props) {
                         {getTerrainIcon(session.terrain)} {session.terrain}
                       </span>
                     )}
-                    {(session.isMergedTelemetry || session.wearableAttribution || (session.rawSource && (session.rawSource.includes('Pixel Watch') || session.rawSource.includes('Google Health')))) && (
-                      <span className="badge-wearable-pill" title="Telemetry merged with Pixel Watch / Google Health">
-                        ⌚ {session.wearableAttribution || 'Pixel Watch'}
+                    {(session.isMergedTelemetry || session.linkedWearableId || session.wearableAttribution || (session.rawSource && (session.rawSource.includes('Pixel Watch') || session.rawSource.includes('Google Health')))) && (
+                      <span className="badge-wearable-pill" title="Telemetry linked with Pixel Watch / Google Health">
+                        ⌚ {session.isMergedTelemetry || session.linkedWearableId ? 'Pixel Watch Linked' : (session.wearableAttribution || 'Pixel Watch')}
                       </span>
                     )}
                   </div>
