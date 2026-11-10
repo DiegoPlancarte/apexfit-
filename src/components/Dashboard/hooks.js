@@ -17,27 +17,27 @@ const STORAGE_KEY_PERF_METRICS = 'workout_tracker_perf_metrics_v1';
 export const STEP_GOAL = 10000;
 
 // Calculates the dates for Day 1 through Day 7 of the current week starting on Monday
-export const getWeekDates = () => {
-  const now = new Date();
-  const currentDayOfWeek = now.getDay(); // 0 is Sunday, 1 is Monday...
+export const getWeekDates = (baseDate = new Date()) => {
+  const d = new Date(baseDate);
+  const currentDayOfWeek = d.getDay(); // 0 is Sunday, 1 is Monday...
   // Distance to Monday (if Sunday (0), distance is -6 days)
   const distanceToMonday = currentDayOfWeek === 0 ? -6 : 1 - currentDayOfWeek;
 
-  const monday = new Date(now);
-  monday.setDate(now.getDate() + distanceToMonday);
+  const monday = new Date(d);
+  monday.setDate(d.getDate() + distanceToMonday);
   monday.setHours(0, 0, 0, 0);
 
   const days = [];
-  const todayStr = getLocalDateString(now);
+  const todayStr = getLocalDateString(new Date());
 
   for (let i = 0; i < 7; i++) {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    const dateStr = getLocalDateString(d);
+    const cur = new Date(monday);
+    cur.setDate(monday.getDate() + i);
+    const dateStr = getLocalDateString(cur);
     const isToday = dateStr === todayStr;
 
-    const shortDay = d.toLocaleDateString('en-US', { weekday: 'short' });
-    const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const shortDay = cur.toLocaleDateString('en-US', { weekday: 'short' });
+    const monthDay = cur.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 
     days.push({
       dayIndex: i,
@@ -51,6 +51,22 @@ export const getWeekDates = () => {
   return days;
 };
 
+export const formatWeekRange = (mondayDate) => {
+  if (!mondayDate) return '';
+  const d1 = new Date(mondayDate);
+  const d2 = new Date(mondayDate);
+  d2.setDate(d1.getDate() + 6);
+
+  const m1 = d1.toLocaleDateString('en-US', { month: 'short' });
+  const m2 = d2.toLocaleDateString('en-US', { month: 'short' });
+  const y = d2.getFullYear();
+
+  if (m1 === m2) {
+    return `${m1} ${d1.getDate()} – ${d2.getDate()}, ${y}`;
+  }
+  return `${m1} ${d1.getDate()} – ${m2} ${d2.getDate()}, ${y}`;
+};
+
 export const useComponentLogic = ({
   onSelectDay,
   completedDayNumbers = [],
@@ -58,11 +74,66 @@ export const useComponentLogic = ({
   activePlanDayNumber = null,
   onBlockedAction = () => {},
 } = {}) => {
-  const weekDates = useMemo(() => getWeekDates(), []);
+  // Current Monday for 7-day week window navigation
+  const [currentMonday, setCurrentMonday] = useState(() => {
+    const now = new Date();
+    const day = now.getDay();
+    const dist = day === 0 ? -6 : 1 - day;
+    const m = new Date(now);
+    m.setDate(now.getDate() + dist);
+    m.setHours(0, 0, 0, 0);
+    return m;
+  });
+
+  const weekDates = useMemo(() => getWeekDates(currentMonday), [currentMonday]);
   const todayDateObj = useMemo(
     () => weekDates.find((w) => w.isToday) || weekDates[0],
     [weekDates]
   );
+
+  const isCurrentWeek = useMemo(() => {
+    const now = new Date();
+    const day = now.getDay();
+    const dist = day === 0 ? -6 : 1 - day;
+    const thisMonday = new Date(now);
+    thisMonday.setDate(now.getDate() + dist);
+    thisMonday.setHours(0, 0, 0, 0);
+    return currentMonday.getTime() === thisMonday.getTime();
+  }, [currentMonday]);
+
+  const weekRangeDisplay = useMemo(
+    () => formatWeekRange(currentMonday),
+    [currentMonday]
+  );
+
+  const handlePrevWeek = useCallback(() => {
+    if (isReadOnly) return;
+    setCurrentMonday((prev) => {
+      const next = new Date(prev);
+      next.setDate(prev.getDate() - 7);
+      return next;
+    });
+  }, [isReadOnly]);
+
+  const handleNextWeek = useCallback(() => {
+    if (isReadOnly) return;
+    setCurrentMonday((prev) => {
+      const next = new Date(prev);
+      next.setDate(prev.getDate() + 7);
+      return next;
+    });
+  }, [isReadOnly]);
+
+  const handleJumpToCurrentWeek = useCallback(() => {
+    if (isReadOnly) return;
+    const now = new Date();
+    const day = now.getDay();
+    const dist = day === 0 ? -6 : 1 - day;
+    const m = new Date(now);
+    m.setDate(now.getDate() + dist);
+    m.setHours(0, 0, 0, 0);
+    setCurrentMonday(m);
+  }, [isReadOnly]);
 
   // Weekly plan state from localStorage with fallback to DEFAULT_WEEKLY_PLAN
   const [weeklyPlan, setWeeklyPlan] = useState(() => {
@@ -429,6 +500,42 @@ export const useComponentLogic = ({
     }
   }, []);
 
+  const [selectedRunForDetails, setSelectedRunForDetails] = useState(null);
+
+  const handleOpenRunDetails = async (dayItem, dateMeta) => {
+    let rawSessions;
+    try {
+      rawSessions = await getSessions();
+    } catch {
+      const cached = localStorage.getItem(STORAGE_KEY_HISTORY_LOG);
+      rawSessions = cached ? JSON.parse(cached) : [];
+    }
+
+    const sessionList = (Array.isArray(rawSessions) ? rawSessions : []).map(normalizeSessionRecord);
+    const targetDate = dateMeta?.dateStr || '';
+    const targetDayNumber = dayItem?.dayNumber;
+
+    let found = sessionList.find(
+      (s) =>
+        (s.type === 'run' || s.Workout_Type === 'Run') &&
+        (s.day_index === targetDayNumber ||
+          s.dayNumber === targetDayNumber ||
+          s.planDayNumber === targetDayNumber ||
+          (targetDate && (s.date === targetDate || s.Date === targetDate || (s.startedAt && s.startedAt.startsWith(targetDate)))))
+    );
+
+    if (found) {
+      setSelectedRunForDetails(found);
+    } else {
+      // Fallback: open clean run logger for this day
+      handleOpenRunLogger(dayItem);
+    }
+  };
+
+  const handleCloseRunDetails = useCallback(() => {
+    setSelectedRunForDetails(null);
+  }, []);
+
   const handleCardClick = (dayItem, dateMeta) => {
     if (isReadOnly) {
       // Allow resuming if user taps the active workout day card
@@ -450,8 +557,14 @@ export const useComponentLogic = ({
       } else if (onSelectDay) {
         onSelectDay(dayItem, dateMeta);
       }
+    } else if (dayItem.activityType === 'run') {
+      if (dayItem.isWorkoutDone) {
+        handleOpenRunDetails(dayItem, dateMeta);
+      } else {
+        handleOpenRunLogger(dayItem);
+      }
     } else {
-      // For Run or Rest days, open detailed summary modal
+      // For Rest days, open detailed summary modal
       setActiveModalItem({ day: dayItem, date: dateMeta });
     }
   };
@@ -602,6 +715,15 @@ export const useComponentLogic = ({
     isReadOnly,
     activePlanDayNumber,
     onBlockedAction,
+    currentMonday,
+    isCurrentWeek,
+    weekRangeDisplay,
+    handlePrevWeek,
+    handleNextWeek,
+    handleJumpToCurrentWeek,
+    selectedRunForDetails,
+    handleOpenRunDetails,
+    handleCloseRunDetails,
     handleOpenRunLogger,
     handleCloseRunLogger,
     handleRunLoggedSuccess,

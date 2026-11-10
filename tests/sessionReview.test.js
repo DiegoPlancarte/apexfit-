@@ -224,7 +224,7 @@ describe('Editable Session Review & Synchronization', () => {
       expect(callBody.action).toBe('logWorkoutSession');
       expect(callBody.session.Workout_ID).toBe('sess_outbox_test_1');
       expect(callBody.session.Workout_Name).toBe('Chest & Triceps');
-      expect(callBody.session.Total_Volume_Lbs).toBe(1425); // (75 * 10) + (75 * 9) = 750 + 675 = 1425
+      expect(callBody.session.Total_Volume_Lbs).toBe(2850); // (75 * 2 * 10) + (75 * 2 * 9) = 1500 + 1350 = 2850 (dual DB standard)
       expect(callBody.session.Total_Sets).toBe(2);
 
       // Verify flat sets array schema

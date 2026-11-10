@@ -1,23 +1,60 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import {
+  getExerciseMeta,
+  isUnilateralExercise,
+  isDualImplementExercise,
+  isBandExercise,
+  getExerciseCues,
+} from '../../services/exerciseLibrary';
 
 export const RIR_OPTIONS = [0, 1, 2, 3, 4];
 export const EXERCISE_REST_PRESETS = [45, 60, 90, 120, 180, 240];
 
 /**
  * Checks whether an exercise is typically performed with a standard barbell.
+ * Properly excludes dumbbells, kettlebells, cables, machines, and bands (e.g., Goblet Squats, DB RDLs).
  */
 export const isBarbellExercise = (exerciseName) => {
   if (!exerciseName) return false;
+  const meta = getExerciseMeta(exerciseName);
+  if (meta?.equipment) {
+    return meta.equipment === 'Barbell';
+  }
+
   const lower = exerciseName.toLowerCase();
+
+  // Exclude non-barbell equipment and unilateral/free-weight movements
+  if (
+    lower.includes('dumbbell') ||
+    lower.includes('db ') ||
+    lower.includes(' db') ||
+    lower.includes('kettlebell') ||
+    lower.includes('kb ') ||
+    lower.includes('goblet') ||
+    lower.includes('bulgarian') ||
+    lower.includes('split squat') ||
+    lower.includes('cable') ||
+    lower.includes('machine') ||
+    lower.includes('band') ||
+    lower.includes('bodyweight') ||
+    lower.includes('push-up') ||
+    lower.includes('pull-up') ||
+    lower.includes('chin-up') ||
+    lower.includes('dips')
+  ) {
+    return false;
+  }
+
   return (
     lower.includes('barbell') ||
-    lower.includes('deadlift') ||
-    lower.includes('squat') ||
-    lower.includes('clean') ||
-    lower.includes('snatch') ||
-    lower.includes('overhead press') ||
+    lower.includes('bb ') ||
+    lower.includes('ez-bar') ||
     lower.includes('bench press') ||
-    lower.includes('hip thrust')
+    lower.includes('back squat') ||
+    lower.includes('front squat') ||
+    lower.includes('zercher') ||
+    lower.includes('deadlift') ||
+    lower.includes('overhead press')
   );
 };
 
@@ -258,16 +295,48 @@ export const useComponentLogic = ({
       ? EXERCISE_REST_PRESETS
       : [...EXERCISE_REST_PRESETS, currentRestSec].sort((a, b) => a - b);
   }, [currentRestSec]);
+
   const isBarbell = useMemo(
     () => isBarbellExercise(exercise.exerciseName),
     [exercise.exerciseName]
   );
+
+  const isUnilateral = useMemo(
+    () => isUnilateralExercise(exercise.exerciseName),
+    [exercise.exerciseName]
+  );
+
+  const isDualImplement = useMemo(
+    () => isDualImplementExercise(exercise.exerciseName),
+    [exercise.exerciseName]
+  );
+
+  const isBand = useMemo(
+    () => isBandExercise(exercise.exerciseName),
+    [exercise.exerciseName]
+  );
+
+  const exerciseCues = useMemo(
+    () => exercise.cues || exercise.description || getExerciseCues(exercise.exerciseName),
+    [exercise.cues, exercise.description, exercise.exerciseName]
+  );
+
+  const [isCuesOpen, setIsCuesOpen] = useState(false);
+  const handleToggleCues = useCallback(() => {
+    setIsCuesOpen((prev) => !prev);
+  }, []);
 
   return {
     editingSets,
     isHistoryOpen,
     hasHistory,
     isBarbell,
+    isUnilateral,
+    isDualImplement,
+    isBand,
+    exerciseCues,
+    isCuesOpen,
+    handleToggleCues,
     openMenuSetId,
     swipedSetId,
     plateCalcState,

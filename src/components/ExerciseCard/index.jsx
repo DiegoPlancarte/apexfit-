@@ -14,6 +14,12 @@ export default function ExerciseCard(props) {
     isHistoryOpen,
     hasHistory,
     isBarbell,
+    isUnilateral,
+    isDualImplement,
+    isBand,
+    exerciseCues,
+    isCuesOpen,
+    handleToggleCues,
     openMenuSetId,
     swipedSetId,
     plateCalcState,
@@ -48,7 +54,24 @@ export default function ExerciseCard(props) {
     <article className="exercise-card">
       <header className="exercise-card-header">
         <div className="exercise-header-main">
-          <h2 className="exercise-title">{exercise.exerciseName}</h2>
+          <div className="exercise-title-badge-row">
+            <h2 className="exercise-title">{exercise.exerciseName}</h2>
+            {isUnilateral && (
+              <span className="exercise-type-tag tag-unilateral" title="Performed per side / single limb">
+                Unilateral • Per Side
+              </span>
+            )}
+            {isDualImplement && (
+              <span className="exercise-type-tag tag-dual-implement" title="Dual dumbbells: Volume counts both hands (x2)">
+                Dual DBs (x2 vol)
+              </span>
+            )}
+            {isBand && (
+              <span className="exercise-type-tag tag-band" title="Continuous loop resistance band (HB-AB01)">
+                HB-AB01 Band
+              </span>
+            )}
+          </div>
           <button
             type="button"
             className={`history-toggle-pill ${isHistoryOpen ? 'history-toggle-pill-active' : ''}`}
@@ -96,6 +119,30 @@ export default function ExerciseCard(props) {
         </div>
       </header>
 
+      {/* Mid-Session Coaching Cues & Form Tip Banner */}
+      {exerciseCues && (
+        <div className="exercise-cues-bar">
+          <button
+            type="button"
+            className="exercise-cues-toggle-btn"
+            onClick={handleToggleCues}
+            aria-expanded={isCuesOpen}
+            title="Toggle coaching cues and form tips"
+          >
+            <span className="cues-icon">💡</span>
+            <span className="cues-preview-text">
+              {isCuesOpen ? 'Form Cue / Coaching Tip' : exerciseCues}
+            </span>
+            <span className="cues-chevron">{isCuesOpen ? '▲' : '▼'}</span>
+          </button>
+          {isCuesOpen && (
+            <div className="exercise-cues-content">
+              <p className="exercise-cues-text">{exerciseCues}</p>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Slide-Down Drawer: Previous Session History */}
       {isHistoryOpen && (
         <div className="history-drawer">
@@ -127,7 +174,15 @@ export default function ExerciseCard(props) {
 
       <div className="sets-table-header">
         <span>SET</span>
-        <span>LBS</span>
+        <span>
+          {isBand
+            ? 'BAND / LBS'
+            : isDualImplement
+            ? 'LBS (ea)'
+            : isUnilateral
+            ? 'LBS (side)'
+            : 'LBS'}
+        </span>
         <span>REPS</span>
         <span>RIR</span>
         <span>ACTION</span>

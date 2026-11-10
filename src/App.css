@@ -716,11 +716,109 @@
   color: var(--text-primary);
 }
 
+.exercise-title-badge-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .exercise-title {
   margin: 0;
   font-size: 16px;
   font-weight: 700;
   color: var(--text-primary);
+}
+
+.exercise-type-tag {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  padding: 2px 7px;
+  border-radius: 6px;
+}
+
+.tag-unilateral {
+  background: rgba(245, 158, 11, 0.15);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: #fbbf24;
+}
+
+.tag-dual-implement {
+  background: rgba(14, 165, 233, 0.15);
+  border: 1px solid rgba(14, 165, 233, 0.35);
+  color: #38bdf8;
+}
+
+.tag-band {
+  background: rgba(168, 85, 247, 0.15);
+  border: 1px solid rgba(168, 85, 247, 0.35);
+  color: #c084fc;
+}
+
+/* Mid-Session Coaching Cues & Form Tip Accordion */
+.exercise-cues-bar {
+  margin-top: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.15s ease;
+}
+
+.exercise-cues-toggle-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-align: left;
+}
+
+.exercise-cues-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-primary);
+}
+
+.cues-icon {
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.cues-preview-text {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+  color: #cbd5e1;
+}
+
+.cues-chevron {
+  font-size: 8px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.exercise-cues-content {
+  padding: 4px 10px 8px 28px;
+  border-top: 1px dashed rgba(255, 255, 255, 0.06);
+}
+
+.exercise-cues-text {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #94a3b8;
+  font-style: italic;
 }
 
 /* Clickable 'Last session' toggle pill */
@@ -2088,6 +2186,74 @@
 
 .refresh-plan-btn:hover {
   background: rgba(59, 130, 246, 0.2);
+}
+
+/* Dashboard Date Navigator */
+.dashboard-week-nav-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  padding: 4px 8px;
+  margin-bottom: 8px;
+}
+
+.week-nav-arrow-btn {
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.week-nav-arrow-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+.week-nav-arrow-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.week-nav-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.week-nav-range-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.2px;
+}
+
+.week-nav-today-btn {
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #93c5fd;
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.week-nav-today-btn:hover {
+  background: rgba(59, 130, 246, 0.28);
+  color: #fff;
 }
 
 /* Week Day Tabs Bar */
@@ -3947,6 +4113,98 @@
   box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
 }
 
+/* Continuous Loop Resistance Band Selector (HB-AB01 Integration) */
+.band-system-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.band-system-sub {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.band-selector-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.band-card-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--bg-input);
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: left;
+}
+
+.band-card-btn:hover {
+  background: var(--bg-hover);
+  border-color: rgba(168, 85, 247, 0.4);
+}
+
+.band-card-active {
+  background: rgba(168, 85, 247, 0.16);
+  border-color: #a855f7;
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.25);
+}
+
+.band-card-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.band-color-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.4);
+}
+
+.band-card-labels {
+  display: flex;
+  flex-direction: column;
+}
+
+.band-card-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.band-card-dim {
+  font-size: 10.5px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+.band-card-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.band-card-tension {
+  font-size: 13px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: #e2e8f0;
+}
+
+.band-card-avg {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
 .weight-picker-actions {
   display: flex;
   justify-content: flex-end;
@@ -4397,6 +4655,21 @@
   background: rgba(16, 185, 129, 0.15);
   border: 1px solid rgba(16, 185, 129, 0.35);
   color: #34d399;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  line-height: 1.2;
+}
+
+.badge-wearable-pill {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(59, 130, 246, 0.15);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  color: #60a5fa;
   display: inline-flex;
   align-items: center;
   gap: 4px;

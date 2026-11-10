@@ -3,6 +3,7 @@ import {
   STORAGE_KEY_HISTORY_LOG,
   fetchHistoricalSessions,
   normalizeSessionRecord,
+  reconcileAndMergeSessions,
 } from '../../services/api';
 import { getSessions, saveSession } from '../../services/db';
 import { formatFriendlyLocalDate, getLocalDateString } from '../../utils/date';
@@ -110,7 +111,7 @@ export const useComponentLogic = () => {
         const local = await getSessions(queryOpts);
         if (!isMounted) return;
         if (Array.isArray(local) && local.length > 0) {
-          setSessions(local.map(normalizeSessionRecord));
+          setSessions(reconcileAndMergeSessions(local));
           setIsLoading(false);
           return;
         }
@@ -132,7 +133,7 @@ export const useComponentLogic = () => {
         });
         if (isMounted) {
           if (Array.isArray(remoteData)) {
-            setSessions(remoteData.map(normalizeSessionRecord));
+            setSessions(reconcileAndMergeSessions(remoteData));
           }
           setIsLoading(false);
         }
@@ -160,7 +161,7 @@ export const useComponentLogic = () => {
         };
         const local = await getSessions(queryOpts);
         if (isMounted && Array.isArray(local)) {
-          setSessions(local.map(normalizeSessionRecord));
+          setSessions(reconcileAndMergeSessions(local));
         }
       } catch {
         // ignore
@@ -219,7 +220,7 @@ export const useComponentLogic = () => {
         forceNetwork: true,
       });
       if (Array.isArray(data)) {
-        setSessions(data.map(normalizeSessionRecord));
+        setSessions(reconcileAndMergeSessions(data));
       }
     } finally {
       setIsRefreshing(false);

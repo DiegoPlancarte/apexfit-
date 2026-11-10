@@ -19,6 +19,7 @@ import {
   ensureDatabaseSeeded,
   extractProgressiveOverloadHistory,
 } from './services/db';
+import { getExerciseCues } from './services/exerciseLibrary';
 
 const STORAGE_KEY_ACTIVE_WORKOUT = 'workout_tracker_active_session_v1';
 const STORAGE_KEY_LAST_HISTORY = 'workout_tracker_last_history_v1';
@@ -394,6 +395,7 @@ export const useComponentLogic = () => {
           id: newExerciseId,
           exerciseName,
           restDurationSec: savedRestSec,
+          cues: getExerciseCues(exerciseName),
           sets: [
             createSetRecord(exerciseName, 1, {
               weightLbs: prevSets[0]?.weightLbs ?? '',
@@ -922,6 +924,12 @@ export const useComponentLogic = () => {
             id: `ex_${Date.now()}_${idx}`,
             exerciseName,
             restDurationSec,
+            description: targetConfig?.description || '',
+            cues:
+              targetConfig?.cues ||
+              targetConfig?.cue ||
+              getExerciseCues(exerciseName) ||
+              '',
             sets: Array.from({ length: initialCount }, (_, sIdx) => {
               const prev = prevSets[sIdx] || prevSets[prevSets.length - 1] || {};
               return createSetRecord(exerciseName, sIdx + 1, {

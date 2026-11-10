@@ -1,6 +1,13 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
+import {
+  RESISTANCE_BANDS,
+  getExerciseMeta,
+  isDualImplementExercise,
+  isUnilateralExercise,
+} from '../../services/exerciseLibrary';
 
-export const DUMBBELL_PRESETS = [15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 70, 80];
+export const DUMBBELL_PRESETS = [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 90, 100];
+export const KETTLEBELL_PRESETS = [9, 13, 18, 26, 35, 44, 53, 62, 70, 80];
 export const CABLE_PRESETS = [10, 20, 30, 40, 50, 60, 70, 85, 100, 120, 140, 160];
 export const MACHINE_PRESETS = [30, 50, 70, 90, 110, 130, 150, 170, 190, 210, 230, 250];
 export const GENERAL_PRESETS = [15, 25, 35, 45, 55, 65, 75, 90, 105, 120, 140, 160];
@@ -20,16 +27,36 @@ export const roundToHalf = (value) => {
 
 /**
  * Detects the equipment category from the exercise name.
+ * Correctly distinguishes dumbbells, kettlebells, resistance bands, cables, and machines.
  *
  * @param {string} exerciseName
- * @returns {'dumbbell'|'cable'|'machine'|'general'}
+ * @returns {'dumbbell'|'kettlebell'|'band'|'cable'|'machine'|'general'}
  */
 export const detectEquipmentType = (exerciseName = '') => {
+  const meta = getExerciseMeta(exerciseName);
+  if (meta?.equipment) {
+    const eq = meta.equipment.toLowerCase();
+    if (eq === 'band') return 'band';
+    if (eq === 'kettlebell') return 'kettlebell';
+    if (eq === 'dumbbell') return 'dumbbell';
+    if (eq === 'cable') return 'cable';
+    if (eq === 'machine') return 'machine';
+  }
+
   const lower = exerciseName.toLowerCase();
+  if (lower.includes('band') || lower.includes('loop')) {
+    return 'band';
+  }
+  if (lower.includes('kettlebell') || lower.includes('kb ') || lower.includes(' kb')) {
+    return 'kettlebell';
+  }
   if (
     lower.includes('dumbbell') ||
     lower.includes('db ') ||
     lower.includes(' db') ||
+    lower.includes('goblet') ||
+    lower.includes('bulgarian') ||
+    lower.includes('split squat') ||
     lower.includes('lateral raise') ||
     lower.includes('curl') ||
     lower.includes('arnold')
@@ -89,10 +116,33 @@ export const useComponentLogic = ({
 
   const equipmentType = useMemo(() => detectEquipmentType(exerciseName), [exerciseName]);
 
+  const isDual = useMemo(() => isDualImplementExercise(exerciseName), [exerciseName]);
+  const isUnilat = useMemo(() => isUnilateralExercise(exerciseName), [exerciseName]);
+
+  const equipmentSubLabel = useMemo(() => {
+    if (equipmentType === 'dumbbell') {
+      if (isDual) return 'per hand (dual DBs)';
+      if (isUnilat) return 'per side';
+      return 'per hand';
+    }
+    if (equipmentType === 'kettlebell') {
+      return isUnilat ? 'per side' : 'per kettlebell';
+    }
+    if (equipmentType === 'band') {
+      return 'calibrated tension (HB-AB01)';
+    }
+    if (equipmentType === 'cable' || equipmentType === 'machine') {
+      return 'total stack';
+    }
+    return 'total load';
+  }, [equipmentType, isDual, isUnilat]);
+
   const presetList = useMemo(() => {
     switch (equipmentType) {
       case 'dumbbell':
         return DUMBBELL_PRESETS;
+      case 'kettlebell':
+        return KETTLEBELL_PRESETS;
       case 'cable':
         return CABLE_PRESETS;
       case 'machine':
@@ -101,6 +151,20 @@ export const useComponentLogic = ({
         return GENERAL_PRESETS;
     }
   }, [equipmentType]);
+
+  const [selectedBand, setSelectedBand] = useState(() => {
+    if (equipmentType !== 'band') return null;
+    const num = Number(defaultValue) || 0;
+    return (
+      RESISTANCE_BANDS.find((b) => num >= b.minTension && num <= b.maxTension) ||
+      RESISTANCE_BANDS[2]
+    );
+  });
+
+  const handleSelectBand = useCallback((band) => {
+    setSelectedBand(band);
+    setWeightInput(String(band.avgTension));
+  }, []);
 
   const weightNum = Math.max(minValue, Math.min(maxValue, Number(weightInput) || 0));
 
@@ -179,7 +243,11 @@ export const useComponentLogic = ({
     activeStep,
     setActiveStep,
     equipmentType,
+    equipmentSubLabel,
     presetList,
+    resistanceBandsList: RESISTANCE_BANDS,
+    selectedBand,
+    handleSelectBand,
     handleAdjustWeight,
     handleSelectPreset,
     handleDirectInputChange,

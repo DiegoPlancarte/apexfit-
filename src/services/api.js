@@ -6,6 +6,7 @@
 
 import { getSessions, saveSession, saveBodyMetric, queueSyncAction, runAllSyncs } from './db';
 import { getLocalDateString, getLocalIsoString } from '../utils/date';
+import { calculateSetWorkVolume } from './exerciseLibrary';
 
 export { runAllSyncs };
 
@@ -192,7 +193,13 @@ export const buildWorkoutPayload = (workoutState) => {
     .map((s, idx) => normalizeSetRecord(s, '', idx));
 
   const totalVolumeLbs = completedSets.reduce(
-    (sum, s) => sum + (Number(s.weightLbs) || 0) * (Number(s.reps) || 0),
+    (sum, s) =>
+      sum +
+      calculateSetWorkVolume(
+        s.exerciseName || s.Exercise_Name || s.name,
+        s.weightLbs,
+        s.reps
+      ),
     0
   );
 
@@ -519,7 +526,7 @@ export const ingestDailySummaries = (summaries = []) => {
 export const joinSessionsAndSets = (sessions = [], sets = []) => {
   if (!Array.isArray(sessions)) return [];
   if (!Array.isArray(sets) || sets.length === 0) {
-    return sessions.map(normalizeSessionRecord);
+    return reconcileAndMergeSessions(sessions.map(normalizeSessionRecord));
   }
 
   // Group sets by Workout_ID / sessionId
@@ -534,7 +541,7 @@ export const joinSessionsAndSets = (sessions = [], sets = []) => {
     setsBySessionId.get(sId).push(rawSet);
   });
 
-  return sessions.map((sess) => {
+  const joined = sessions.map((sess) => {
     const sId = String(sess.Workout_ID || sess.sessionId || sess.id || '');
     const attachedSets = setsBySessionId.get(sId) || [];
 
@@ -551,6 +558,8 @@ export const joinSessionsAndSets = (sessions = [], sets = []) => {
       sets: combinedSets,
     });
   });
+
+  return reconcileAndMergeSessions(joined);
 };
 
 /**
@@ -829,7 +838,13 @@ export const normalizeSessionRecord = (session) => {
   // Recalculate or fallback total volume and total sets
   const computedSetsCount = exercises.reduce((acc, ex) => acc + (ex.sets || []).length, 0);
   const computedVolume = exercises.reduce(
-    (sum, ex) => sum + (ex.sets || []).reduce((sSum, s) => sSum + s.weightLbs * s.reps, 0),
+    (sum, ex) =>
+      sum +
+      (ex.sets || []).reduce(
+        (sSum, s) =>
+          sSum + calculateSetWorkVolume(ex.exerciseName, s.weightLbs, s.reps),
+        0
+      ),
     0
   );
 
@@ -900,6 +915,226 @@ export const normalizeSessionRecord = (session) => {
     planDayNumber: dayIndex,
     exercises,
   };
+};
+
+/**
+ * Detects whether a session originates from a passive wearable or health tracker
+ * (Pixel Watch, Google Health, Health Connect, Garmin, Fitbit, Apple Watch).
+ *
+ * @param {Object} session
+ * @returns {boolean}
+ */
+export const isWearableSource = (session) => {
+  if (!session || typeof session !== 'object') return false;
+  const source = String(
+    session.rawSource ||
+    session.Raw_Source ||
+    session.source ||
+    session.device ||
+    ''
+  ).toLowerCase();
+
+  return (
+    source.includes('pixel watch') ||
+    source.includes('google health') ||
+    source.includes('health connect') ||
+    source.includes('apple watch') ||
+    source.includes('fitbit') ||
+    source.includes('garmin') ||
+    source.includes('wearable')
+  );
+};
+
+const getSessionTimeMinutes = (session) => {
+  if (!session) return null;
+  const startTime = session.Start_Time || session.startTime;
+  if (startTime && typeof startTime === 'string') {
+    const parts = startTime.split(':').map(Number);
+    if (parts.length >= 2 && !Number.isNaN(parts[0]) && !Number.isNaN(parts[1])) {
+      return parts[0] * 60 + parts[1];
+    }
+  }
+  const iso = session.startedAt || session.created_at;
+  if (iso && typeof iso === 'string' && iso.includes('T')) {
+    const timePart = iso.split('T')[1];
+    if (timePart) {
+      const parts = timePart.split(':').map(Number);
+      if (parts.length >= 2 && !Number.isNaN(parts[0]) && !Number.isNaN(parts[1])) {
+        return parts[0] * 60 + parts[1];
+      }
+    }
+  }
+  return null;
+};
+
+const areActivityTypesCompatible = (typeA, typeB) => {
+  const a = String(typeA || '').toLowerCase().trim();
+  const b = String(typeB || '').toLowerCase().trim();
+
+  if (a === b) return true;
+
+  const isLiftingA = a === 'workout' || a === 'lifting' || a === 'strength';
+  const isLiftingB = b === 'workout' || b === 'lifting' || b === 'strength' || b === 'functional strength training' || b === 'crossfit';
+  if (isLiftingA && isLiftingB) return true;
+
+  const isRunA = a === 'run' || a === 'running' || a === 'treadmill run' || a === 'outdoor run';
+  const isRunB = b === 'run' || b === 'running' || b === 'treadmill run' || b === 'outdoor run';
+  if (isRunA && isRunB) return true;
+
+  const isWalkA = a === 'walk' || a === 'walking' || a === 'treadmill walk';
+  const isWalkB = b === 'walk' || b === 'walking' || b === 'treadmill walk';
+  if (isWalkA && isWalkB) return true;
+
+  return false;
+};
+
+/**
+ * Reconciles and merges passive wearable telemetry (Pixel Watch / Google Health)
+ * with active app-tracked lifting and run sessions occurring on the same date/window.
+ *
+ * Prevents duplicate cards in HistoryLog, attaches composite telemetry
+ * (heart rate, active calories, GPS splits), and flags `isMergedTelemetry: true`.
+ *
+ * @param {Array<Object>} sessionsList
+ * @returns {Array<Object>}
+ */
+export const reconcileAndMergeSessions = (sessionsList = []) => {
+  if (!Array.isArray(sessionsList) || sessionsList.length === 0) return [];
+
+  const normalizedList = sessionsList.map(normalizeSessionRecord);
+
+  const isWearableOnly = (s) => {
+    if (s.isMergedTelemetry) return false;
+    if (!isWearableSource(s)) return false;
+    const setsCount =
+      (s.sets?.length || 0) +
+      (s.exercises?.reduce((sum, ex) => sum + (ex.sets?.length || 0), 0) || 0);
+    // If it already has lifting sets or recorded volume, it's an active app workout
+    if (setsCount > 0 || (Number(s.totalVolumeLbs) || 0) > 0) return false;
+    return true;
+  };
+
+  const activeSessions = [];
+  const wearableCandidates = [];
+
+  for (const s of normalizedList) {
+    if (isWearableOnly(s)) {
+      wearableCandidates.push(s);
+    } else {
+      activeSessions.push({ ...s });
+    }
+  }
+
+  if (wearableCandidates.length === 0) {
+    return activeSessions;
+  }
+
+  const matchedWearableIds = new Set();
+
+  for (const active of activeSessions) {
+    const activeDate = active.date || (active.startedAt ? active.startedAt.split('T')[0] : '');
+    const activeTimeMin = getSessionTimeMinutes(active);
+
+    let bestMatch = null;
+    let bestScore = -1;
+
+    for (const wearable of wearableCandidates) {
+      if (matchedWearableIds.has(wearable.sessionId)) continue;
+
+      const wearableDate = wearable.date || (wearable.startedAt ? wearable.startedAt.split('T')[0] : '');
+      if (activeDate !== wearableDate) continue;
+
+      const typeMatch = areActivityTypesCompatible(
+        active.type || active.Workout_Type,
+        wearable.type || wearable.Workout_Type
+      );
+
+      let score = 0;
+      if (typeMatch) score += 50;
+
+      const wearableTimeMin = getSessionTimeMinutes(wearable);
+      if (activeTimeMin !== null && wearableTimeMin !== null) {
+        const diffMin = Math.abs(activeTimeMin - wearableTimeMin);
+        if (diffMin <= 90) {
+          score += Math.max(0, 90 - diffMin);
+        } else if (!typeMatch) {
+          continue;
+        }
+      } else if (typeMatch) {
+        score += 20;
+      }
+
+      if (score > bestScore && score > 0) {
+        bestScore = score;
+        bestMatch = wearable;
+      }
+    }
+
+    if (bestMatch) {
+      matchedWearableIds.add(bestMatch.sessionId);
+
+      const wearableSource = bestMatch.rawSource || bestMatch.Raw_Source || 'Pixel Watch / Google Health';
+      const activeSource = active.rawSource || active.Raw_Source || 'ApexFit';
+      const compositeSource = activeSource.includes(wearableSource)
+        ? activeSource
+        : `${activeSource} + ${wearableSource}`;
+
+      active.avgHeartRate = active.avgHeartRate ?? bestMatch.avgHeartRate ?? bestMatch.Avg_HR ?? null;
+      active.Avg_HR = active.avgHeartRate;
+      active.Avg_Heart_Rate = active.avgHeartRate;
+
+      active.calories = active.calories ?? bestMatch.calories ?? bestMatch.Calories ?? null;
+      active.Calories = active.calories;
+
+      if (!active.distanceMiles && bestMatch.distanceMiles) {
+        active.distanceMiles = bestMatch.distanceMiles;
+        active.Distance_Miles = bestMatch.distanceMiles;
+      }
+
+      if (!active.splits && bestMatch.splits) {
+        active.splits = bestMatch.splits;
+        active.Splits = bestMatch.splits;
+      }
+
+      if (!active.avgPace && bestMatch.avgPace) {
+        active.avgPace = bestMatch.avgPace;
+        active.Avg_Pace = bestMatch.avgPace;
+      }
+
+      if (bestMatch.activeZoneMin != null && active.activeZoneMin == null) {
+        active.activeZoneMin = bestMatch.activeZoneMin;
+        active.Active_Zone_Min = bestMatch.activeZoneMin;
+      }
+
+      if (bestMatch.maxHeartRate != null && active.maxHeartRate == null) {
+        active.maxHeartRate = bestMatch.maxHeartRate;
+        active.Max_HR = bestMatch.maxHeartRate;
+      }
+
+      if ((!active.durationSec || active.durationSec === 0) && bestMatch.durationSec > 0) {
+        active.durationSec = bestMatch.durationSec;
+        active.Total_Duration_Min = bestMatch.Total_Duration_Min;
+        active.totalDurationMin = bestMatch.totalDurationMin;
+      }
+
+      active.isMergedTelemetry = true;
+      active.wearableAttribution = wearableSource;
+      active.rawSource = compositeSource;
+      active.Raw_Source = compositeSource;
+    }
+  }
+
+  const unmatchedWearables = wearableCandidates.filter(
+    (w) => !matchedWearableIds.has(w.sessionId)
+  );
+
+  const combined = [...activeSessions, ...unmatchedWearables];
+
+  return combined.sort((a, b) => {
+    const timeA = new Date(a.startedAt || a.date || 0).getTime();
+    const timeB = new Date(b.startedAt || b.date || 0).getTime();
+    return timeB - timeA;
+  });
 };
 
 /**
@@ -1225,7 +1460,8 @@ export const fetchHistoricalSessions = async (options) => {
     }
   }
 
-  const filteredLocal = filterSessionsByDate(localSessions, startDate, endDate);
+  const reconciledLocal = reconcileAndMergeSessions(localSessions);
+  const filteredLocal = filterSessionsByDate(reconciledLocal, startDate, endDate);
 
   // LOCAL-FIRST POLICY:
   // If local records exist for the requested scope and network is not forced, return immediately (zero network requests)

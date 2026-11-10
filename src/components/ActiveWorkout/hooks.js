@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { calculateSetWorkVolume } from '../../services/exerciseLibrary';
 
 export const QUICK_EXERCISES = [
   'Barbell Bench Press',
@@ -166,10 +167,16 @@ export const useComponentLogic = ({
   const { allSets, completedSets, totalVolumeLbs } = useMemo(() => {
     const flatSets = (workoutState.exercises || []).flatMap((ex) => ex.sets || []);
     const done = flatSets.filter((s) => s.completed);
-    const volume = done.reduce(
-      (sum, s) => sum + (Number(s.weightLbs) || 0) * (Number(s.reps) || 0),
-      0
-    );
+
+    let volume = 0;
+    (workoutState.exercises || []).forEach((ex) => {
+      (ex.sets || []).forEach((s) => {
+        if (s.completed) {
+          volume += calculateSetWorkVolume(ex.exerciseName, s.weightLbs, s.reps);
+        }
+      });
+    });
+
     return { allSets: flatSets, completedSets: done, totalVolumeLbs: volume };
   }, [workoutState.exercises]);
 

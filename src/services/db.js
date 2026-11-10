@@ -20,6 +20,7 @@ import {
   STORAGE_KEY_SHOES,
   LEGACY_STORAGE_KEY_SHOES,
 } from './runningService';
+import { calculateSetWorkVolume } from './exerciseLibrary';
 import { getLocalDateString, getLocalIsoString } from '../utils/date';
 
 export const DB_NAME = 'ApexFitDB';
@@ -1247,7 +1248,11 @@ export const saveAndSyncEditedSession = async (session) => {
     (ex.sets || []).forEach((s, idx) => {
       const weight = Number(s.weightLbs || 0);
       const reps = Number(s.reps || 0);
-      totalVolumeLbs += weight * reps;
+      totalVolumeLbs += calculateSetWorkVolume(
+        ex.exerciseName || ex.name,
+        weight,
+        reps
+      );
       totalSets += 1;
       if (s.rir !== null && s.rir !== undefined && s.rir !== '') {
         rirSum += Number(s.rir);

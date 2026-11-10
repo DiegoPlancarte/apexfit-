@@ -13,7 +13,11 @@ export default function WeightPickerModal(props) {
     activeStep,
     setActiveStep,
     equipmentType,
+    equipmentSubLabel,
     presetList,
+    resistanceBandsList,
+    selectedBand,
+    handleSelectBand,
     handleAdjustWeight,
     handleSelectPreset,
     handleDirectInputChange,
@@ -23,15 +27,6 @@ export default function WeightPickerModal(props) {
   } = useComponentLogic(props);
 
   if (!isOpen) return null;
-
-  const equipmentSubLabel =
-    equipmentType === 'dumbbell'
-      ? 'per hand'
-      : equipmentType === 'cable'
-      ? 'total stack'
-      : equipmentType === 'machine'
-      ? 'total stack'
-      : 'total load';
 
   return (
     <div
@@ -170,24 +165,74 @@ export default function WeightPickerModal(props) {
             </div>
           </div>
 
-          {/* Preset Chips */}
-          <div className="weight-picker-presets-section">
-            <span className="weight-presets-title">
-              Common {equipmentType === 'general' ? 'Weight' : equipmentType} Presets:
-            </span>
-            <div className="weight-preset-chips-grid">
-              {presetList.map((preset) => (
-                <button
-                  key={preset}
-                  type="button"
-                  className={`weight-chip-btn ${weightNum === preset ? 'weight-chip-active' : ''}`}
-                  onClick={() => handleSelectPreset(preset)}
-                >
-                  {preset}
-                </button>
-              ))}
+          {/* Continuous Loop Resistance Bands Section (HB-AB01 Integration) */}
+          {equipmentType === 'band' ? (
+            <div className="weight-picker-presets-section">
+              <div className="band-system-header">
+                <span className="weight-presets-title">
+                  HB-AB01 Continuous Loop Bands:
+                </span>
+                <span className="band-system-sub">
+                  2080 mm loop • Calibrated tension
+                </span>
+              </div>
+              <div className="band-selector-cards-list">
+                {resistanceBandsList.map((band) => {
+                  const isCurrent =
+                    selectedBand?.id === band.id ||
+                    (weightNum >= band.minTension && weightNum <= band.maxTension);
+
+                  return (
+                    <button
+                      key={band.id}
+                      type="button"
+                      className={`band-card-btn ${isCurrent ? 'band-card-active' : ''}`}
+                      onClick={() => handleSelectBand(band)}
+                    >
+                      <div className="band-card-left">
+                        <span
+                          className="band-color-dot"
+                          style={{
+                            backgroundColor: band.hex,
+                            border: band.border ? `1px solid ${band.border}` : 'none',
+                          }}
+                        />
+                        <div className="band-card-labels">
+                          <span className="band-card-name">
+                            {band.level} ({band.color})
+                          </span>
+                          <span className="band-card-dim">{band.dimensions}</span>
+                        </div>
+                      </div>
+                      <div className="band-card-right">
+                        <span className="band-card-tension">{band.minTension}–{band.maxTension} lbs</span>
+                        <span className="band-card-avg">~{band.avgTension} lb mid</span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
-          </div>
+          ) : (
+            /* Standard Weight Presets */
+            <div className="weight-picker-presets-section">
+              <span className="weight-presets-title">
+                Common {equipmentType === 'general' ? 'Weight' : equipmentType} Presets:
+              </span>
+              <div className="weight-preset-chips-grid">
+                {presetList.map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    className={`weight-chip-btn ${weightNum === preset ? 'weight-chip-active' : ''}`}
+                    onClick={() => handleSelectPreset(preset)}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Modal Actions */}

@@ -267,6 +267,11 @@ export default function HistoryLog(props) {
                         {getTerrainIcon(session.terrain)} {session.terrain}
                       </span>
                     )}
+                    {(session.isMergedTelemetry || session.wearableAttribution || (session.rawSource && (session.rawSource.includes('Pixel Watch') || session.rawSource.includes('Google Health')))) && (
+                      <span className="badge-wearable-pill" title="Telemetry merged with Pixel Watch / Google Health">
+                        ⌚ {session.wearableAttribution || 'Pixel Watch'}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -332,11 +337,11 @@ export default function HistoryLog(props) {
                     </div>
                   )}
 
-                  {isRun && session.avgHeartRate && (
+                  {session.avgHeartRate != null && session.avgHeartRate !== '' && (
                     <div className="history-metric">
                       <span className="history-metric-label">Avg HR</span>
                       <span className="history-metric-val">
-                        {session.avgHeartRate} bpm
+                        ❤️ {session.avgHeartRate} bpm
                       </span>
                     </div>
                   )}
@@ -345,7 +350,7 @@ export default function HistoryLog(props) {
                     <div className="history-metric">
                       <span className="history-metric-label">Calories</span>
                       <span className="history-metric-val">
-                        {session.calories} kcal
+                        🔥 {session.calories} kcal
                       </span>
                     </div>
                   )}

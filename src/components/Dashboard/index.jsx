@@ -41,6 +41,13 @@ export default function Dashboard(props) {
     selectedWorkoutForReview,
     handleCloseWorkoutReview,
     handleSaveWorkoutReview,
+    weekRangeDisplay,
+    isCurrentWeek,
+    handlePrevWeek,
+    handleNextWeek,
+    handleJumpToCurrentWeek,
+    selectedRunForDetails,
+    handleCloseRunDetails,
   } = useComponentLogic(props);
 
   return (
@@ -169,8 +176,46 @@ export default function Dashboard(props) {
         </div>
       </section>
 
-        {/* 7-Day Day Selector Bar */}
-        <section className="week-day-tabs">
+      {/* Date Navigator: Non-redundant quick switching between training weeks */}
+      <section className="dashboard-week-nav-bar" aria-label="Training Week Navigator">
+        <button
+          type="button"
+          className="week-nav-arrow-btn"
+          onClick={handlePrevWeek}
+          disabled={isReadOnly}
+          title="Previous training week"
+          aria-label="Previous week"
+        >
+          ‹
+        </button>
+        <div className="week-nav-center">
+          <span className="week-nav-range-label">{weekRangeDisplay}</span>
+          {!isCurrentWeek && (
+            <button
+              type="button"
+              className="week-nav-today-btn"
+              onClick={handleJumpToCurrentWeek}
+              disabled={isReadOnly}
+              title="Jump back to current week"
+            >
+              Current Week
+            </button>
+          )}
+        </div>
+        <button
+          type="button"
+          className="week-nav-arrow-btn"
+          onClick={handleNextWeek}
+          disabled={isReadOnly}
+          title="Next training week"
+          aria-label="Next week"
+        >
+          ›
+        </button>
+      </section>
+
+      {/* 7-Day Day Selector Bar */}
+      <section className="week-day-tabs">
           {enhancedDays.map((day) => {
             const isSelected = day.dayNumber === selectedDayNumber;
             return (
@@ -371,9 +416,9 @@ export default function Dashboard(props) {
                       className="day-action-btn btn-open-run"
                       onClick={() => handleCardClick(day, day.dateMeta)}
                     >
-                      Run Details
+                      {day.isWorkoutDone ? 'View Run' : '🏃 + Log Run'}
                     </button>
-                    {!day.isWorkoutDone && (
+                    {day.isWorkoutDone && (
                       <button
                         type="button"
                         className={`day-action-btn btn-card-log-run ${
@@ -384,9 +429,9 @@ export default function Dashboard(props) {
                           handleOpenRunLogger(day);
                         }}
                         disabled={isReadOnly}
-                        title={isReadOnly ? ACTIVE_WORKOUT_GUARD_MESSAGE : 'Manually log run for this day'}
+                        title={isReadOnly ? ACTIVE_WORKOUT_GUARD_MESSAGE : 'Log another run for this day'}
                       >
-                        🏃 + Log Run
+                        + Add Run
                       </button>
                     )}
                   </>
@@ -528,6 +573,15 @@ export default function Dashboard(props) {
           onClose={handleCloseWorkoutReview}
           onSave={handleSaveWorkoutReview}
           isReadOnly={isReadOnly}
+        />
+      )}
+
+      {/* Completed Run Session Details Modal */}
+      {selectedRunForDetails && (
+        <RunDetailsModal
+          isOpen={Boolean(selectedRunForDetails)}
+          session={selectedRunForDetails}
+          onClose={handleCloseRunDetails}
         />
       )}
 

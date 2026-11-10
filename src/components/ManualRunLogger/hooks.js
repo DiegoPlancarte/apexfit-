@@ -37,18 +37,35 @@ export const useComponentLogic = ({
     return `${hh}:${mm}`;
   }, []);
 
-  const [title, setTitle] = useState(() => initialDayItem?.title || 'Zone 2 Recovery Run');
+  const [title, setTitle] = useState(() => initialDayItem?.title || 'Outdoor Run');
   const [date, setDate] = useState(todayStr);
   const [time, setTime] = useState(currentTimeStr);
-  const [distance, setDistance] = useState('3.11');
-  const [durationMinutes, setDurationMinutes] = useState('25');
-  const [durationSeconds, setDurationSeconds] = useState('00');
+  const [distance, setDistance] = useState('');
+  const [durationMinutes, setDurationMinutes] = useState('');
+  const [durationSeconds, setDurationSeconds] = useState('');
   const [terrain, setTerrain] = useState('Road');
   const [shoeId, setShoeId] = useState(() => getActiveShoe()?.id || '');
   const [avgHeartRate, setAvgHeartRate] = useState('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+
+  // Reset form to clean, unpopulated state whenever modal opens
+  const [prevIsOpen, setPrevIsOpen] = useState(isOpen);
+  if (isOpen !== prevIsOpen) {
+    setPrevIsOpen(isOpen);
+    if (isOpen) {
+      setTitle(initialDayItem?.title || 'Outdoor Run');
+      setDate(getLocalDateString());
+      setDistance('');
+      setDurationMinutes('');
+      setDurationSeconds('');
+      setAvgHeartRate('');
+      setNotes('');
+      setErrorMsg('');
+      setIsSubmitting(false);
+    }
+  }
 
   // Handle escape key
   useEffect(() => {

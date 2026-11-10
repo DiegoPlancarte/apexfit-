@@ -20,9 +20,74 @@ export const MUSCLE_GROUPS = [
 export const EQUIPMENT_TYPES = [
   'Barbell',
   'Dumbbell',
+  'Kettlebell',
+  'Band',
   'Cable',
   'Machine',
   'Bodyweight',
+];
+
+/**
+ * Continuous Loop Resistance Bands Specifications (HB-AB01 Integration)
+ * Dimensions: Length x Width x Thickness in mm with calibrated tension ranges.
+ */
+export const RESISTANCE_BANDS = [
+  {
+    id: 'hb-ab01-xlight',
+    level: 'X-Light',
+    color: 'Yellow',
+    hex: '#eab308',
+    dimensions: '2080 x 10 x 4.5 mm',
+    minTension: 5,
+    maxTension: 30,
+    avgTension: 17.5,
+    label: 'X-Light (5–30 lbs)',
+  },
+  {
+    id: 'hb-ab01-light',
+    level: 'Light',
+    color: 'Red',
+    hex: '#ef4444',
+    dimensions: '2080 x 15 x 4.5 mm',
+    minTension: 15,
+    maxTension: 60,
+    avgTension: 37.5,
+    label: 'Light (15–60 lbs)',
+  },
+  {
+    id: 'hb-ab01-medium',
+    level: 'Medium',
+    color: 'Black',
+    hex: '#1f2937',
+    border: '#4b5563',
+    dimensions: '2080 x 22 x 4.5 mm',
+    minTension: 35,
+    maxTension: 110,
+    avgTension: 72.5,
+    label: 'Medium (35–110 lbs)',
+  },
+  {
+    id: 'hb-ab01-heavy',
+    level: 'Heavy',
+    color: 'Purple',
+    hex: '#a855f7',
+    dimensions: '2080 x 35 x 4.5 mm',
+    minTension: 50,
+    maxTension: 135,
+    avgTension: 92.5,
+    label: 'Heavy (50–135 lbs)',
+  },
+  {
+    id: 'hb-ab01-xheavy',
+    level: 'X-Heavy',
+    color: 'Green',
+    hex: '#22c55e',
+    dimensions: '2080 x 52 x 4.5 mm',
+    minTension: 60,
+    maxTension: 170,
+    avgTension: 115,
+    label: 'X-Heavy (60–170 lbs)',
+  },
 ];
 
 export const EXERCISE_LIBRARY = [
@@ -191,7 +256,317 @@ export const EXERCISE_LIBRARY = [
   { id: 'plank', name: 'Plank Hold', muscleGroup: 'Core', equipment: 'Bodyweight' },
   { id: 'ab-crunch', name: 'Abdominal Floor Crunch', muscleGroup: 'Core', equipment: 'Bodyweight' },
   { id: 'hollow-body-hold', name: 'Hollow Body Hold', muscleGroup: 'Core', equipment: 'Bodyweight' },
+
+  // KETTLEBELL & FUNCTIONAL FREE-WEIGHTS
+  {
+    id: 'kettlebell-goblet-squat',
+    name: 'Kettlebell Goblet Squat',
+    muscleGroup: 'Quads',
+    equipment: 'Kettlebell',
+    cues: 'Grip horns of bell tight to chest, elbows inside knees, upright torso.',
+  },
+  {
+    id: 'kettlebell-swing',
+    name: 'Kettlebell Swing',
+    muscleGroup: 'Hamstrings',
+    equipment: 'Kettlebell',
+    cues: 'Hip hinge snap, engage glutes at top, arms act as loose pendulums.',
+  },
+  {
+    id: 'kettlebell-clean-and-press',
+    name: 'Kettlebell Clean and Press',
+    muscleGroup: 'Shoulders',
+    equipment: 'Kettlebell',
+    isUnilateral: true,
+    cues: 'Explosive hip drive, catch softly in rack, press vertically with locked core.',
+  },
+  {
+    id: 'turkish-get-up',
+    name: 'Turkish Get-Up',
+    muscleGroup: 'Core',
+    equipment: 'Kettlebell',
+    isUnilateral: true,
+    cues: 'Keep eye on kettlebell, lock shoulder packing, rise systematically through lunges.',
+  },
+
+  // RESISTANCE BANDS (HB-AB01 CONTINUOUS LOOP)
+  {
+    id: 'band-pull-apart',
+    name: 'Resistance Band Pull-Apart',
+    muscleGroup: 'Back',
+    equipment: 'Band',
+    cues: 'Arms locked straight, retract shoulder blades, pull band across clavicle.',
+  },
+  {
+    id: 'banded-face-pull',
+    name: 'Banded Face Pull',
+    muscleGroup: 'Back',
+    equipment: 'Band',
+    cues: 'Anchor high, pull hands toward ears, lead with elbows and rotate externally.',
+  },
+  {
+    id: 'banded-good-morning',
+    name: 'Banded Good Morning',
+    muscleGroup: 'Hamstrings',
+    equipment: 'Band',
+    cues: 'Band looped under feet and over traps, hinge hips back with proud chest.',
+  },
+  {
+    id: 'band-assisted-pull-up',
+    name: 'Band-Assisted Pull-Up',
+    muscleGroup: 'Back',
+    equipment: 'Band',
+    cues: 'Loop band on pull-up bar, foot in loop, drive elbows down to ribs.',
+  },
+  {
+    id: 'banded-lateral-walk',
+    name: 'Banded Monster Walk',
+    muscleGroup: 'Glutes',
+    equipment: 'Band',
+    isUnilateral: true,
+    cues: 'Band above knees, athletic quarter squat, step lateral with continuous tension.',
+  },
+  {
+    id: 'banded-push-up',
+    name: 'Banded Push-Up',
+    muscleGroup: 'Chest',
+    equipment: 'Band',
+    cues: 'Band stretched across upper back under hands, explosive press against peak band tension.',
+  },
 ];
+
+/**
+ * Normalizes an exercise name for consistent lookup (case/hyphen insensitive).
+ */
+export const normalizeExerciseKey = (name = '') => {
+  return String(name)
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '');
+};
+
+/**
+ * Returns exercise metadata from the standardized library matching the given exercise name.
+ *
+ * @param {string} exerciseName
+ * @returns {Object|null}
+ */
+export const getExerciseMeta = (exerciseName = '') => {
+  if (!exerciseName) return null;
+  const cleanTarget = exerciseName.trim().toLowerCase();
+  const normalizedKey = normalizeExerciseKey(exerciseName);
+
+  // 1. Direct exact or lowercase match
+  let found = EXERCISE_LIBRARY.find(
+    (ex) => ex.name.toLowerCase() === cleanTarget || ex.id.toLowerCase() === cleanTarget
+  );
+  if (found) return found;
+
+  // 2. Normalized alphanumeric match
+  found = EXERCISE_LIBRARY.find((ex) => normalizeExerciseKey(ex.name) === normalizedKey);
+  if (found) return found;
+
+  // 3. Substring match
+  found = EXERCISE_LIBRARY.find((ex) => {
+    const exLower = ex.name.toLowerCase();
+    return cleanTarget.includes(exLower) || exLower.includes(cleanTarget);
+  });
+  if (found) return found;
+
+  // 4. Token-based matching (e.g. "Romanian Deadlift (Dumbbell)" matches "Dumbbell Romanian Deadlift")
+  const targetTokens = cleanTarget.replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(Boolean);
+  if (targetTokens.length > 1) {
+    found = EXERCISE_LIBRARY.find((ex) => {
+      const exTokens = ex.name.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(/\s+/).filter(Boolean);
+      return (
+        targetTokens.every((t) => exTokens.includes(t)) ||
+        exTokens.every((t) => targetTokens.includes(t))
+      );
+    });
+    if (found) return found;
+  }
+
+  // 5. Dynamic heuristic fallback if unlisted
+  let inferredEquipment = 'Barbell';
+  if (cleanTarget.includes('dumbbell') || cleanTarget.includes('db')) {
+    inferredEquipment = 'Dumbbell';
+  } else if (cleanTarget.includes('kettlebell') || cleanTarget.includes('kb')) {
+    inferredEquipment = 'Kettlebell';
+  } else if (cleanTarget.includes('band') || cleanTarget.includes('loop')) {
+    inferredEquipment = 'Band';
+  } else if (cleanTarget.includes('cable')) {
+    inferredEquipment = 'Cable';
+  } else if (cleanTarget.includes('machine') || cleanTarget.includes('smith')) {
+    inferredEquipment = 'Machine';
+  } else if (cleanTarget.includes('bodyweight') || cleanTarget.includes('push-up') || cleanTarget.includes('pull-up') || cleanTarget.includes('dip')) {
+    inferredEquipment = 'Bodyweight';
+  }
+
+  return {
+    id: normalizedKey || 'custom-exercise',
+    name: exerciseName.trim(),
+    muscleGroup: 'Full Body',
+    equipment: inferredEquipment,
+  };
+};
+
+/**
+ * Determines whether an exercise is performed unilaterally (per side / single limb).
+ *
+ * @param {string} exerciseName
+ * @returns {boolean}
+ */
+export const isUnilateralExercise = (exerciseName = '') => {
+  if (!exerciseName) return false;
+  const meta = getExerciseMeta(exerciseName);
+  if (meta?.isUnilateral) return true;
+
+  const lower = exerciseName.toLowerCase();
+  return (
+    lower.includes('single-arm') ||
+    lower.includes('single arm') ||
+    lower.includes('one-arm') ||
+    lower.includes('single-leg') ||
+    lower.includes('single leg') ||
+    lower.includes('split squat') ||
+    lower.includes('bulgarian') ||
+    lower.includes('lunge') ||
+    lower.includes('step-up') ||
+    lower.includes('step up') ||
+    lower.includes('pistol squat') ||
+    lower.includes('kickback') ||
+    lower.includes('side bend') ||
+    lower.includes('suitcase carry')
+  );
+};
+
+/**
+ * Determines whether an exercise uses dual implements (e.g. 2 dumbbells of the logged weight simultaneously).
+ *
+ * @param {string} exerciseName
+ * @returns {boolean}
+ */
+export const isDualImplementExercise = (exerciseName = '') => {
+  if (!exerciseName) return false;
+  const meta = getExerciseMeta(exerciseName);
+  if (meta?.isDualImplement) return true;
+
+  const lower = exerciseName.toLowerCase();
+
+  // If explicitly single arm / unilateral, it is not dual simultaneous
+  if (
+    lower.includes('single-arm') ||
+    lower.includes('single arm') ||
+    lower.includes('one-arm') ||
+    lower.includes('goblet') ||
+    lower.includes('suitcase')
+  ) {
+    return false;
+  }
+
+  // Common dual-dumbbell movements where user logs per-hand weight
+  return (
+    lower.includes('dumbbell bench') ||
+    lower.includes('flat dumbbell press') ||
+    lower.includes('incline dumbbell press') ||
+    lower.includes('decline dumbbell press') ||
+    lower.includes('dumbbell press') ||
+    lower.includes('dumbbell flye') ||
+    lower.includes('dumbbell rdl') ||
+    lower.includes('dumbbell romanian deadlift') ||
+    lower.includes('dumbbell shrug') ||
+    lower.includes('seated dumbbell shoulder press') ||
+    lower.includes('arnold press') ||
+    lower.includes('lateral raise') ||
+    lower.includes('front raise') ||
+    lower.includes('rear delt') ||
+    lower.includes('dumbbell curl') ||
+    lower.includes('hammer curl') ||
+    lower.includes('dumbbell skull crusher') ||
+    lower.includes('dumbbell walking lunge')
+  );
+};
+
+/**
+ * Determines whether an exercise utilizes resistance bands.
+ *
+ * @param {string} exerciseName
+ * @returns {boolean}
+ */
+export const isBandExercise = (exerciseName = '') => {
+  if (!exerciseName) return false;
+  const meta = getExerciseMeta(exerciseName);
+  if (meta?.equipment === 'Band') return true;
+  const lower = exerciseName.toLowerCase();
+  return lower.includes('band') || lower.includes('resistance loop');
+};
+
+/**
+ * Retrieves coaching cues and form tips for the given exercise.
+ *
+ * @param {string} exerciseName
+ * @returns {string} Form coaching cue or generic safety tip
+ */
+export const getExerciseCues = (exerciseName = '') => {
+  if (!exerciseName) return '';
+  const meta = getExerciseMeta(exerciseName);
+  if (meta?.cues) return meta.cues;
+
+  const lower = exerciseName.toLowerCase();
+  if (lower.includes('bench press')) {
+    return 'Retract and depress shoulder blades, feet anchored into floor, bar touches lower sternum.';
+  }
+  if (lower.includes('squat')) {
+    return 'Brace abdominal wall 360°, knees track over middle toes, maintain neutral lumbar spine.';
+  }
+  if (lower.includes('deadlift') || lower.includes('rdl')) {
+    return 'Hinge back at the hips, soft knee flexion, drag the weight close along shins.';
+  }
+  if (lower.includes('overhead press') || lower.includes('ohp')) {
+    return 'Squeeze glutes and quads tight, press bar straight upward, lock out over mid-foot.';
+  }
+  if (lower.includes('row')) {
+    return 'Pull through elbows towards hip pocket, pause briefly at peak contraction without torso swinging.';
+  }
+  if (lower.includes('pulldown') || lower.includes('pull-up')) {
+    return 'Depress scapulae first, drive elbows toward ribs, bring upper chest toward bar.';
+  }
+  if (lower.includes('curl')) {
+    return 'Pin elbows against ribs, eliminate body sway, control the eccentric lowering phase.';
+  }
+  if (lower.includes('lateral raise')) {
+    return 'Slight forward torso lean, lead with elbows, raise to parallel without shrugging traps.';
+  }
+  return 'Maintain controlled tempo, brace core, and focus on steady mind-muscle contraction.';
+};
+
+/**
+ * Computes the accurate total work volume for a completed set,
+ * properly accounting for per-hand weights on dual implements and unilateral movements.
+ *
+ * @param {string} exerciseName
+ * @param {number|string} weightLbs - Logged weight (e.g. per dumbbell)
+ * @param {number|string} reps - Completed reps
+ * @returns {number} Total set work volume in lbs
+ */
+export const calculateSetWorkVolume = (exerciseName, weightLbs, reps) => {
+  const w = Number(weightLbs) || 0;
+  const r = Number(reps) || 0;
+  if (w <= 0 || r <= 0) return 0;
+
+  // Dual dumbbells (e.g. two 30 lb dumbbells held simultaneously): volume = weight * 2 * reps
+  if (isDualImplementExercise(exerciseName)) {
+    return w * 2 * r;
+  }
+
+  // Single implement per-side (e.g. single-arm row, 30 lb DB performed 10 reps per side):
+  // Total work across both limbs = weight * reps * 2
+  if (isUnilateralExercise(exerciseName)) {
+    return w * 2 * r;
+  }
+
+  // Standard implement (Barbell, Cable, Machine, Plate loaded)
+  return w * r;
+};
 
 /**
  * Returns all standardized exercises in the library.

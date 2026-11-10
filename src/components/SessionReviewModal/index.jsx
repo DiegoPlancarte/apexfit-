@@ -218,6 +218,11 @@ function SessionReviewDialog({
               ) : (
                 <span className="badge-complete-pill">✓ Completed</span>
               )}
+              {(normalized.isMergedTelemetry || normalized.wearableAttribution || (normalized.rawSource && (normalized.rawSource.includes('Pixel Watch') || normalized.rawSource.includes('Google Health')))) && (
+                <span className="badge-wearable-pill" title="Telemetry merged with Pixel Watch / Google Health">
+                  ⌚ {normalized.wearableAttribution || 'Pixel Watch'}
+                </span>
+              )}
             </div>
             <h2 id="session-review-title" className="session-review-title">
               {workoutTitle}
@@ -305,6 +310,20 @@ function SessionReviewDialog({
                 {computedMetrics.avgRir !== null ? `@${computedMetrics.avgRir}` : '—'}
               </span>
             </div>
+
+            {normalized.avgHeartRate != null && normalized.avgHeartRate !== '' && (
+              <div className="session-metric-pill">
+                <span className="session-metric-label">Avg HR</span>
+                <span className="session-metric-val">❤️ {normalized.avgHeartRate} bpm</span>
+              </div>
+            )}
+
+            {normalized.calories != null && normalized.calories !== '' && (
+              <div className="session-metric-pill">
+                <span className="session-metric-label">Calories</span>
+                <span className="session-metric-val">🔥 {normalized.calories} kcal</span>
+              </div>
+            )}
           </div>
 
           {/* Exercise Sets Breakdown */}
