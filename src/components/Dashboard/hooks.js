@@ -272,6 +272,69 @@ export const useComponentLogic = ({
     };
   }, []);
 
+  // Hydrate local sessions to auto-sync completed workouts & runs into dashboard cards
+  const [loggedSessions, setLoggedSessions] = useState([]);
+
+  const refreshLoggedSessions = useCallback(async () => {
+    try {
+      const records = await getSessions();
+      if (Array.isArray(records)) {
+        setLoggedSessions(reconcileAndMergeSessions(records).map(normalizeSessionRecord));
+        return;
+      }
+    } catch {
+      // fallback to history log cache
+    }
+    try {
+      const cached = localStorage.getItem(STORAGE_KEY_HISTORY_LOG);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) {
+          setLoggedSessions(reconcileAndMergeSessions(parsed).map(normalizeSessionRecord));
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    getSessions()
+      .then((records) => {
+        if (isMounted && Array.isArray(records)) {
+          setLoggedSessions(reconcileAndMergeSessions(records).map(normalizeSessionRecord));
+        }
+      })
+      .catch(() => {
+        try {
+          const cached = localStorage.getItem(STORAGE_KEY_HISTORY_LOG);
+          if (cached && isMounted) {
+            const parsed = JSON.parse(cached);
+            if (Array.isArray(parsed)) {
+              setLoggedSessions(reconcileAndMergeSessions(parsed).map(normalizeSessionRecord));
+            }
+          }
+        } catch {
+          // ignore
+        }
+      });
+
+    const handleSync = () => refreshLoggedSessions();
+    window.addEventListener('apexfit:sync-flushed', handleSync);
+    window.addEventListener('apexfit:session-updated', handleSync);
+    window.addEventListener('apexfit:run-logged', handleSync);
+    window.addEventListener('apexfit:plan-updated', handleSync);
+
+    return () => {
+      isMounted = false;
+      window.removeEventListener('apexfit:sync-flushed', handleSync);
+      window.removeEventListener('apexfit:session-updated', handleSync);
+      window.removeEventListener('apexfit:run-logged', handleSync);
+      window.removeEventListener('apexfit:plan-updated', handleSync);
+    };
+  }, [refreshLoggedSessions]);
+
   const handleRefreshPlan = async () => {
     setIsRefreshing(true);
     try {
@@ -598,17 +661,70 @@ export const useComponentLogic = ({
 
     const daySteps = Number(stepsMap[dateMeta.dateStr] || 0);
     const isStepGoalMet = daySteps >= STEP_GOAL;
+    const isRest = dayItem.activityType === 'rest';
+
+    // Auto-detect completed matching session from local IndexedDB/history
+    const matchingSession = loggedSessions.find((s) => {
+      if (isRest) return false;
+      const sessDate = s.date || s.Date || (s.startedAt ? s.startedAt.split('T')[0] : '');
+      const sessDayNumber = s.dayNumber ?? s.day_index ?? s.planDayNumber;
+
+      // 1. Exact date match with compatible activity type
+      if (dateMeta.dateStr && sessDate === dateMeta.dateStr) {
+        if (dayItem.activityType === 'run' && (s.type === 'run' || s.Workout_Type === 'Run' || s.type === 'cardio' || s.type === 'walk')) {
+          return true;
+        }
+        if (dayItem.activityType === 'workout' && s.type !== 'run' && s.type !== 'walk') {
+          return true;
+        }
+      }
+
+      // 2. Explicit plan day link
+      if (sessDayNumber != null && sessDayNumber === dayItem.dayNumber) {
+        if (!sessDate || sessDate === dateMeta.dateStr || isCurrentWeek) {
+          if (dayItem.activityType === 'run' && (s.type === 'run' || s.Workout_Type === 'Run')) return true;
+          if (dayItem.activityType === 'workout' && s.type !== 'run') return true;
+        }
+      }
+
+      // 3. Title match on active training date
+      if (dateMeta.dateStr && sessDate === dateMeta.dateStr && dayItem.title) {
+        const sName = (s.workoutName || s.Workout_Name || '').toLowerCase();
+        if (sName && sName === dayItem.title.toLowerCase()) return true;
+      }
+
+      return false;
+    });
+
     const isWorkoutDone =
       dayItem.status === 'Completed' ||
       completedDayNumbers.includes(dayItem.dayNumber) ||
-      dayItem.activityType === 'rest'; // Rest day completes workout milestone by resting
+      Boolean(matchingSession) ||
+      isRest; // Rest day completes workout milestone by resting
 
     const isFullyComplete = isWorkoutDone && isStepGoalMet;
 
-    const perfMetric =
-      perfMetricsMap[dayItem.dayNumber] ||
-      dayItem.perfMetric ||
-      '';
+    let derivedPerf = perfMetricsMap[dayItem.dayNumber] || dayItem.perfMetric || '';
+    if (!derivedPerf && matchingSession) {
+      if (matchingSession.type === 'run' || matchingSession.Workout_Type === 'Run') {
+        const dist = matchingSession.distanceMiles || matchingSession.distance || 0;
+        const pace = matchingSession.avgPace || '';
+        const elev = matchingSession.elevationGainFt ? ` • ⛰️ +${Math.round(matchingSession.elevationGainFt)} ft` : '';
+        derivedPerf = `${dist} mi${pace ? ' • ' + pace : ''}${elev}`;
+      } else {
+        const vol = Number(matchingSession.totalVolumeLbs || matchingSession.Total_Volume_Lbs || 0);
+        const sets = Number(
+          matchingSession.totalSets ||
+            matchingSession.Total_Sets ||
+            (matchingSession.exercises ? matchingSession.exercises.reduce((sum, ex) => sum + (ex.sets?.length || 0), 0) : 0)
+        );
+        if (vol > 0 || sets > 0) {
+          derivedPerf = `${vol.toLocaleString()} lbs total volume • ${sets} sets`;
+        }
+      }
+    }
+
+    const perfMetric = derivedPerf;
 
     const restHabits = restHabitsMap[dayItem.dayNumber] || {
       mobilityDone: false,
@@ -694,11 +810,13 @@ export const useComponentLogic = ({
       setRunLogToastMsg(
         `Run recorded: ${session.distanceMiles} mi (${session.avgPace || ''}) 🎉`
       );
+      refreshLoggedSessions();
+      window.dispatchEvent(new CustomEvent('apexfit:run-logged', { detail: session }));
       setTimeout(() => {
         setRunLogToastMsg('');
       }, 4000);
     },
-    [runLoggerDayItem, weeklyPlan]
+    [runLoggerDayItem, weeklyPlan, refreshLoggedSessions]
   );
 
   return {

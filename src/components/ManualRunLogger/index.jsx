@@ -30,6 +30,8 @@ export default function ManualRunLogger(props) {
     selectedShoe,
     avgHeartRate,
     setAvgHeartRate,
+    elevationGainFt,
+    setElevationGainFt,
     notes,
     setNotes,
     distancePresets,
@@ -383,6 +385,36 @@ export default function ManualRunLogger(props) {
                 disabled={isSubmitting}
               />
               <span className="input-addon-text">bpm</span>
+            </div>
+          </div>
+
+          {/* Optional Elevation Gain */}
+          <div className="form-group">
+            <label htmlFor="run-elevation-input" className="form-label">
+              Elevation Gain (optional)
+            </label>
+            <div className="input-with-addon">
+              <input
+                id="run-elevation-input"
+                type="number"
+                min="0"
+                max="10000"
+                inputMode="numeric"
+                className="run-form-input"
+                placeholder="e.g. 150"
+                value={elevationGainFt}
+                onChange={(e) => {
+                  if (e.target.value.includes('-')) return;
+                  setElevationGainFt(e.target.value);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === '-' || e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '.') {
+                    e.preventDefault();
+                  }
+                }}
+                disabled={isSubmitting}
+              />
+              <span className="input-addon-text">ft</span>
             </div>
           </div>
 

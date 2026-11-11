@@ -70,11 +70,16 @@ export const useComponentLogic = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isOpen, onClose]);
 
-  // Parse splits from session splits string
+  // Parse splits from session splits string with total run distance for accurate partial split filtering
   const rawSplitsString = session?.splits;
+  const totalRunDistance =
+    session?.distanceMiles ??
+    session?.distance ??
+    (session?.distanceKm ? Number(session.distanceKm) * 0.621371 : null);
+
   const parsedSplits = useMemo(() => {
-    return parseSplits(rawSplitsString);
-  }, [rawSplitsString]);
+    return parseSplits(rawSplitsString, totalRunDistance);
+  }, [rawSplitsString, totalRunDistance]);
 
   const handleSelectTerrain = useCallback(
     (terrain) => {

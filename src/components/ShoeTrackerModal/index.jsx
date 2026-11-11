@@ -185,6 +185,12 @@ export default function ShoeTrackerModal(props) {
                 <div className="history-skeleton-card" />
                 <div className="history-skeleton-card" />
               </div>
+            ) : shoes.length === 0 ? (
+              <div className="shoe-empty-fleet">
+                <span className="shoe-empty-icon">👟</span>
+                <p>No running shoes in your rotation yet.</p>
+                <span className="shoe-empty-sub">Add a pair above to track mileage and retirement status!</span>
+              </div>
             ) : (
               shoes.map((shoe) => {
               const health = getShoeHealth(shoe.currentMiles, shoe.maxMiles);

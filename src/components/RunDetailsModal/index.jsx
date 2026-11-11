@@ -101,6 +101,12 @@ export default function RunDetailsModal(props) {
                 <span className="run-metric-val">{session.avgHeartRate} bpm</span>
               </div>
             )}
+            {session.elevationGainFt != null && session.elevationGainFt !== '' && Number(session.elevationGainFt) > 0 && (
+              <div className="run-metric-pill">
+                <span className="run-metric-label">Elevation Gain</span>
+                <span className="run-metric-val">⛰️ +{Math.round(Number(session.elevationGainFt))} ft</span>
+              </div>
+            )}
           </div>
 
           {/* Route / Terrain Selector Section */}

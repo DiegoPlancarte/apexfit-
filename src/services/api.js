@@ -241,6 +241,7 @@ export const buildWorkoutPayload = (workoutState) => {
     Workout_Name: workoutName,
     Total_Duration_Min: durationMin,
     Distance_Miles: Number(workoutState.distanceMiles || workoutState.distance || 0),
+    Elevation_Gain_Ft: workoutState.elevationGainFt ?? workoutState.Elevation_Gain_Ft ?? '',
     Total_Sets: completedSets.length,
     Total_Volume_Lbs: totalVolumeLbs,
     Started_At: startedAt,
@@ -790,6 +791,29 @@ export const normalizeSessionRecord = (session) => {
       ? Number(session.Calories)
       : null;
 
+  const elevationGainFt =
+    session.elevationGainFt != null && session.elevationGainFt !== ''
+      ? Number(session.elevationGainFt)
+      : session.Elevation_Gain_Ft != null && session.Elevation_Gain_Ft !== ''
+      ? Number(session.Elevation_Gain_Ft)
+      : session.Elevation_Gain != null && session.Elevation_Gain !== ''
+      ? Number(session.Elevation_Gain)
+      : session.elevationGain != null && session.elevationGain !== ''
+      ? Number(session.elevationGain)
+      : session.elevationGainM != null && session.elevationGainM !== ''
+      ? Math.round(Number(session.elevationGainM) * 3.28084)
+      : session.Elevation_Gain_M != null && session.Elevation_Gain_M !== ''
+      ? Math.round(Number(session.Elevation_Gain_M) * 3.28084)
+      : session.Elevation != null && session.Elevation !== ''
+      ? Number(session.Elevation)
+      : session.elevation != null && session.elevation !== ''
+      ? Number(session.elevation)
+      : session.altitudeGain != null && session.altitudeGain !== ''
+      ? Number(session.altitudeGain)
+      : session.Altitude_Gain != null && session.Altitude_Gain !== ''
+      ? Number(session.Altitude_Gain)
+      : null;
+
   const splitsStr = session.splits || session.Splits || '';
   let avgPace = session.avgPace || session.Avg_Pace || '';
   if (!avgPace && splitsStr && splitsStr.includes('Avg Pace: ')) {
@@ -897,6 +921,8 @@ export const normalizeSessionRecord = (session) => {
     Avg_Heart_Rate: avgHeartRate,
     calories,
     Calories: calories,
+    elevationGainFt,
+    Elevation_Gain_Ft: elevationGainFt,
     avgPace,
     Avg_Pace: avgPace,
     highlight,
@@ -1152,6 +1178,11 @@ export const reconcileAndMergeSessions = (sessionsList = []) => {
       if (bestMatch.maxHeartRate != null && active.maxHeartRate == null) {
         active.maxHeartRate = bestMatch.maxHeartRate;
         active.Max_HR = bestMatch.maxHeartRate;
+      }
+
+      if (bestMatch.elevationGainFt != null && active.elevationGainFt == null) {
+        active.elevationGainFt = bestMatch.elevationGainFt;
+        active.Elevation_Gain_Ft = bestMatch.elevationGainFt;
       }
 
       if ((!active.durationSec || active.durationSec === 0) && bestMatch.durationSec > 0) {

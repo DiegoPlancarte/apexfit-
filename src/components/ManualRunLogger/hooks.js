@@ -45,6 +45,7 @@ export const useComponentLogic = ({
   const [terrain, setTerrain] = useState('Road');
   const [shoeId, setShoeId] = useState('');
   const [avgHeartRate, setAvgHeartRate] = useState('');
+  const [elevationGainFt, setElevationGainFt] = useState('');
   const [notes, setNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
@@ -61,6 +62,7 @@ export const useComponentLogic = ({
       setDurationSeconds('');
       setShoeId('');
       setAvgHeartRate('');
+      setElevationGainFt('');
       setNotes('');
       setErrorMsg('');
       setIsSubmitting(false);
@@ -210,6 +212,8 @@ export const useComponentLogic = ({
           distanceMiles: distanceNum,
           avgPace: averagePaceStr,
           avgHeartRate: avgHeartRate ? Number(avgHeartRate) : null,
+          elevationGainFt: elevationGainFt ? Number(elevationGainFt) : null,
+          Elevation_Gain_Ft: elevationGainFt ? Number(elevationGainFt) : null,
           terrain,
           shoeName: selectedShoe?.name || '',
           shoeId: selectedShoe?.id || '',
@@ -242,6 +246,7 @@ export const useComponentLogic = ({
       terrain,
       averagePaceStr,
       avgHeartRate,
+      elevationGainFt,
       selectedShoe,
       notes,
       onSuccess,
@@ -273,6 +278,8 @@ export const useComponentLogic = ({
     selectedShoe,
     avgHeartRate,
     setAvgHeartRate,
+    elevationGainFt,
+    setElevationGainFt,
     notes,
     setNotes,
     distancePresets: DISTANCE_PRESETS,

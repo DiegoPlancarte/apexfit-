@@ -21,38 +21,7 @@ export const TERRAIN_ICONS = {
   Track: '🏟️',
 };
 
-export const DEFAULT_SHOES = [
-  {
-    id: 'shoe_pegasus_40',
-    name: 'Nike Pegasus 40',
-    brand: 'Nike',
-    currentMiles: 145.6,
-    maxMiles: 350,
-    isActive: true,
-    terrain: 'Road',
-    purchasedDate: '2026-08-10',
-  },
-  {
-    id: 'shoe_endorphin_speed_3',
-    name: 'Saucony Endorphin Speed 3',
-    brand: 'Saucony',
-    currentMiles: 232.4,
-    maxMiles: 350,
-    isActive: false,
-    terrain: 'Track',
-    purchasedDate: '2026-06-15',
-  },
-  {
-    id: 'shoe_speedgoat_5',
-    name: 'Hoka Speedgoat 5',
-    brand: 'Hoka',
-    currentMiles: 88.0,
-    maxMiles: 350,
-    isActive: false,
-    terrain: 'Trail',
-    purchasedDate: '2026-09-02',
-  },
-];
+export const DEFAULT_SHOES = [];
 
 /**
  * Returns the icon emoji associated with a given terrain type.
@@ -88,10 +57,14 @@ export const secondsToPace = (seconds) => {
  * Parses a Google Sheets split string into a structured array of split objects.
  * Example input: "M1: 8:45 | M2: 8:32 | Rem (0.19m): 8:10/mi"
  *
+ * Excludes partial final splits (under 0.95 miles) from winning the "Fastest"
+ * badge so that only full or near-full miles compete for fastest pace.
+ *
  * @param {string} splitsStr - The raw split string
- * @returns {Array<{ id: string, label: string, pace: string, paceSeconds: number, isFastest: boolean, isSlowest: boolean, barPercent: number }>}
+ * @param {number|null} [totalDistanceMiles=null] - Total run distance in miles to determine final partial split
+ * @returns {Array<{ id: string, label: string, pace: string, paceSeconds: number, isFastest: boolean, isSlowest: boolean, barPercent: number, splitDistance: number, isFullMile: boolean }>}
  */
-export const parseSplits = (splitsStr) => {
+export const parseSplits = (splitsStr, totalDistanceMiles = null) => {
   if (!splitsStr || typeof splitsStr !== 'string') return [];
 
   // Split by pipe '|', semicolon ';', or comma ','
@@ -103,12 +76,21 @@ export const parseSplits = (splitsStr) => {
   if (chunks.length === 0) return [];
 
   const rawParsed = [];
+  const parsedTotalDist = Number(totalDistanceMiles);
+  const hasTotalDist = Number.isFinite(parsedTotalDist) && parsedTotalDist > 0;
 
   chunks.forEach((chunk, index) => {
     // Examples: "M1: 8:45", "Mile 1: 8:32", "Rem (0.19m): 8:10/mi", "1: 8:45"
     const colonIdx = chunk.indexOf(':');
     let label = `Mile ${index + 1}`;
     let pacePortion = chunk;
+    let explicitDistance = null;
+
+    // Check for explicit distance in chunk, e.g. "(0.19m)", "(0.22 mi)", "(0.22)"
+    const distMatch = chunk.match(/\((\d+(?:\.\d+)?)\s*(?:m|mi|miles)?\)/i);
+    if (distMatch) {
+      explicitDistance = parseFloat(distMatch[1]);
+    }
 
     if (colonIdx !== -1) {
       const leftPart = chunk.slice(0, colonIdx).trim();
@@ -126,6 +108,30 @@ export const parseSplits = (splitsStr) => {
       }
     }
 
+    // Determine split distance in miles
+    let splitDistance = 1.0;
+    if (explicitDistance !== null && Number.isFinite(explicitDistance)) {
+      splitDistance = explicitDistance;
+    } else if (hasTotalDist) {
+      if (index < chunks.length - 1) {
+        splitDistance = 1.0;
+      } else {
+        // Final split distance
+        const remainder = Math.round((parsedTotalDist - (chunks.length - 1)) * 100) / 100;
+        splitDistance = remainder > 0 ? remainder : 1.0;
+      }
+    } else if (/^rem/i.test(chunk)) {
+      splitDistance = 0.5; // explicitly marked as remainder split
+    }
+
+    // A split is considered a full mile if its distance is at least 0.95 miles
+    const isFullMile = splitDistance >= 0.95;
+
+    // Enrich label with distance if it's a partial final split and doesn't already contain it
+    if (!isFullMile && !label.includes('(') && !label.toLowerCase().includes('rem')) {
+      label = `${label} (${splitDistance} mi)`;
+    }
+
     // Extract pace like "8:45" or "8:45/mi"
     const paceMatch = pacePortion.match(/\b\d{1,2}:\d{2}\b/);
     const pace = paceMatch ? paceMatch[0] : pacePortion.trim();
@@ -137,6 +143,8 @@ export const parseSplits = (splitsStr) => {
       label,
       pace: pace ? `${pace} /mi` : '—',
       paceSeconds,
+      splitDistance,
+      isFullMile,
     });
   });
 
@@ -153,14 +161,26 @@ export const parseSplits = (splitsStr) => {
     }));
   }
 
-  const minSec = Math.min(...validPaces);
+  // Only full or near-full miles (distance >= 0.95 mi) compete for the fastest badge
+  const eligibleFastestPaces = rawParsed
+    .filter((s) => s.isFullMile && s.paceSeconds > 0)
+    .map((s) => s.paceSeconds);
+
+  const minSec = eligibleFastestPaces.length > 0 ? Math.min(...eligibleFastestPaces) : null;
   const maxSec = Math.max(...validPaces);
   const avgSeconds = Math.round(
     validPaces.reduce((sum, val) => sum + val, 0) / validPaces.length
   );
 
   return rawParsed.map((s) => {
-    const isFastest = s.paceSeconds > 0 && s.paceSeconds === minSec && validPaces.length > 1;
+    // Partial final splits under 0.95 miles are excluded from winning the fastest badge
+    const isFastest =
+      s.isFullMile &&
+      s.paceSeconds > 0 &&
+      minSec !== null &&
+      s.paceSeconds === minSec &&
+      validPaces.length > 1;
+
     const isSlowest = s.paceSeconds > 0 && s.paceSeconds === maxSec && validPaces.length > 1;
 
     let deltaSeconds = 0;
@@ -215,15 +235,51 @@ export const getAverageSplitPace = (parsedSplits) => {
 };
 
 /**
- * Retrieves the stored shoe list from localStorage, falling back to DEFAULT_SHOES.
+ * Clears lingering legacy storage keys and mock shoe test caches.
+ */
+export const purgeMockShoes = () => {
+  try {
+    localStorage.removeItem(LEGACY_STORAGE_KEY_SHOES);
+    const cached = localStorage.getItem(STORAGE_KEY_SHOES);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) {
+        const cleaned = parsed.filter(
+          (s) =>
+            s &&
+            s.id &&
+            !s.id.startsWith('shoe_pegasus_40') &&
+            !s.id.startsWith('shoe_endorphin_speed_3') &&
+            !s.id.startsWith('shoe_speedgoat_5')
+        );
+        if (cleaned.length !== parsed.length) {
+          localStorage.setItem(STORAGE_KEY_SHOES, JSON.stringify(cleaned));
+        }
+      }
+    }
+  } catch {
+    // ignore
+  }
+};
+
+/**
+ * Retrieves the stored shoe list from localStorage, falling back to clean DEFAULT_SHOES.
  */
 export const getStoredShoes = () => {
   try {
-    const cached = localStorage.getItem(STORAGE_KEY_SHOES) || localStorage.getItem(LEGACY_STORAGE_KEY_SHOES);
+    purgeMockShoes();
+    const cached = localStorage.getItem(STORAGE_KEY_SHOES);
     if (cached) {
       const parsed = JSON.parse(cached);
       if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed;
+        return parsed.filter(
+          (s) =>
+            s &&
+            s.id &&
+            !s.id.startsWith('shoe_pegasus_40') &&
+            !s.id.startsWith('shoe_endorphin_speed_3') &&
+            !s.id.startsWith('shoe_speedgoat_5')
+        );
       }
     }
   } catch {

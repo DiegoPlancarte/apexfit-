@@ -337,6 +337,15 @@ export default function HistoryLog(props) {
                     </div>
                   )}
 
+                  {isRun && session.elevationGainFt != null && session.elevationGainFt !== '' && Number(session.elevationGainFt) > 0 && (
+                    <div className="history-metric">
+                      <span className="history-metric-label">Elevation</span>
+                      <span className="history-metric-val">
+                        ⛰️ +{Math.round(Number(session.elevationGainFt))} ft
+                      </span>
+                    </div>
+                  )}
+
                   {session.avgHeartRate != null && session.avgHeartRate !== '' && (
                     <div className="history-metric">
                       <span className="history-metric-label">Avg HR</span>
@@ -452,7 +461,10 @@ export default function HistoryLog(props) {
                           </div>
 
                           <div className="splits-cards-container">
-                            {parseSplits(session.splits).map((split) => (
+                            {parseSplits(
+                              session.splits,
+                              session.distanceMiles || session.distance || (session.distanceKm ? Number(session.distanceKm) * 0.621371 : null)
+                            ).map((split) => (
                               <div
                                 key={split.id}
                                 className={`split-card-row ${split.isFastest ? 'split-card-fastest' : ''}`}

@@ -16,9 +16,7 @@ import {
   extractActiveSec,
 } from './api';
 import {
-  DEFAULT_SHOES,
   STORAGE_KEY_SHOES,
-  LEGACY_STORAGE_KEY_SHOES,
 } from './runningService';
 import { calculateSetWorkVolume } from './exerciseLibrary';
 import { getLocalDateString, getLocalIsoString } from '../utils/date';
@@ -91,22 +89,31 @@ const seedInitialData = async (db) => {
       }
     }
 
-    // 2. Seed Shoe Rotation
+    // 2. Seed Shoe Rotation (clean by default; restores user shoes if present)
     const shoeCount = await countRecords(db, STORES.SHOE_ROTATION);
     if (shoeCount === 0) {
-      let initialShoes = DEFAULT_SHOES;
+      let initialShoes = [];
       try {
-        const cached =
-          localStorage.getItem(STORAGE_KEY_SHOES) ||
-          localStorage.getItem(LEGACY_STORAGE_KEY_SHOES);
+        const cached = localStorage.getItem(STORAGE_KEY_SHOES);
         if (cached) {
           const parsed = JSON.parse(cached);
-          if (Array.isArray(parsed) && parsed.length > 0) initialShoes = parsed;
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            initialShoes = parsed.filter(
+              (s) =>
+                s &&
+                s.id &&
+                !s.id.startsWith('shoe_pegasus_40') &&
+                !s.id.startsWith('shoe_endorphin_speed_3') &&
+                !s.id.startsWith('shoe_speedgoat_5')
+            );
+          }
         }
       } catch {
         // fallback to defaults
       }
-      await putBatch(db, STORES.SHOE_ROTATION, initialShoes);
+      if (initialShoes.length > 0) {
+        await putBatch(db, STORES.SHOE_ROTATION, initialShoes);
+      }
     }
 
     // 3. Seed Body Metrics (clean by default; restores user metrics if present)
@@ -507,10 +514,17 @@ export const getShoeRotation = async () => {
       req.onerror = () => reject(req.error);
     });
 
-    if (records.length === 0) return DEFAULT_SHOES;
-    return records;
+    if (records.length === 0) return [];
+    return records.filter(
+      (s) =>
+        s &&
+        s.id &&
+        !s.id.startsWith('shoe_pegasus_40') &&
+        !s.id.startsWith('shoe_endorphin_speed_3') &&
+        !s.id.startsWith('shoe_speedgoat_5')
+    );
   } catch {
-    return DEFAULT_SHOES;
+    return [];
   }
 };
 
