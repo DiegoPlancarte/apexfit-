@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   STORAGE_KEY_HISTORY_LOG,
+  STORAGE_KEY_PLAN,
   getApiUrl,
   normalizeSessionRecord,
   extractActiveSec,
@@ -19,7 +20,7 @@ import {
   STORAGE_KEY_SHOES,
 } from './runningService';
 import { calculateSetWorkVolume } from './exerciseLibrary';
-import { getLocalDateString, getLocalIsoString } from '../utils/date';
+import { getLocalDateString, getLocalIsoString, parseLocalDate } from '../utils/date';
 
 export const DB_NAME = 'ApexFitDB';
 export const LEGACY_DB_NAME = 'IronLogDB';
@@ -27,6 +28,11 @@ export const DB_VERSION = 1;
 
 export const STORAGE_KEY_OVERLOAD_HISTORY = 'apexfit_overload_history';
 export const LEGACY_STORAGE_KEY_OVERLOAD_HISTORY = 'ironlog_overload_history';
+export const STORAGE_KEY_COMPLETED_DAYS = 'workout_tracker_completed_days_v1';
+export const STORAGE_KEY_PERF_METRICS = 'workout_tracker_perf_metrics_v1';
+export const STORAGE_KEY_REST_HABITS = 'workout_tracker_rest_habits_v1';
+export const STORAGE_KEY_ACTIVE_WEEK_MONDAY = 'workout_tracker_active_week_monday_v1';
+export const STORAGE_KEY_LAST_ACTIVE_DATE = 'workout_tracker_last_active_date_v1';
 
 export const STORES = {
   SESSIONS: 'sessions',
@@ -1347,11 +1353,328 @@ export const saveAndSyncEditedSession = async (session) => {
 };
 
 /**
- * Initializes a global network listener that flushes the outbox whenever the browser goes online.
- * Also performs an immediate background flush if currently online.
+ * Computes the active 7-day Monday–Sunday date bounds for a given reference date in local timezone.
+ *
+ * @param {Date|string} [referenceDate=new Date()]
+ * @returns {{ mondayStr: string, sundayStr: string, todayStr: string, weekDates: Array<string>, weekDateSet: Set<string> }}
+ */
+export const getCurrentWeekDateBounds = (referenceDate = new Date()) => {
+  const ref = parseLocalDate(referenceDate);
+  const currentDayOfWeek = ref.getDay(); // 0 is Sunday, 1 is Monday...
+  const distanceToMonday = currentDayOfWeek === 0 ? -6 : 1 - currentDayOfWeek;
+
+  const monday = new Date(ref);
+  monday.setDate(ref.getDate() + distanceToMonday);
+  monday.setHours(0, 0, 0, 0);
+
+  const weekDates = [];
+  for (let i = 0; i < 7; i++) {
+    const cur = new Date(monday);
+    cur.setDate(monday.getDate() + i);
+    weekDates.push(getLocalDateString(cur));
+  }
+
+  return {
+    mondayStr: weekDates[0],
+    sundayStr: weekDates[6],
+    todayStr: getLocalDateString(ref),
+    weekDates,
+    weekDateSet: new Set(weekDates),
+  };
+};
+
+/**
+ * Checks whether a session record's date strictly falls within [startDate, endDate].
+ *
+ * @param {Object} session
+ * @param {string} startDate - 'YYYY-MM-DD'
+ * @param {string} endDate - 'YYYY-MM-DD'
+ * @returns {boolean}
+ */
+export const isSessionWithinDateBounds = (session, startDate, endDate) => {
+  if (!session || typeof session !== 'object') return false;
+  const sDate =
+    session.date ||
+    session.Date ||
+    (session.startedAt ? getLocalDateString(session.startedAt) : '');
+  if (!sDate) return false;
+  if (startDate && sDate < startDate) return false;
+  if (endDate && sDate > endDate) return false;
+  return true;
+};
+
+/**
+ * Re-validates local IndexedDB sessions and localStorage completion caches against
+ * the latest fetched Plan rows and active calendar week bounds.
+ *
+ * Prevents stale cross-week session linking and clears cached "Completed" states
+ * when the backend Plan row is "Scheduled" (unless an un-synced action is pending in sync_outbox).
+ *
+ * @param {Array<Object>} [planList=[]]
+ * @param {Object} [options={}]
+ * @param {Array<Object>|null} [options.remoteSessions=null]
+ * @param {Date|string} [options.referenceDate=new Date()]
+ * @param {boolean} [options.authoritativePlan=false]
+ * @returns {Promise<{ invalidatedDays: Array<number>, removedSessionIds: Array<string>, weekRolledOver: boolean, dateChanged: boolean }>}
+ */
+export const revalidateSessionsAgainstPlan = async (planList = [], options = {}) => {
+  const {
+    remoteSessions = null,
+    referenceDate = new Date(),
+    authoritativePlan = false,
+  } = options;
+
+  const { mondayStr, todayStr, weekDates, weekDateSet } =
+    getCurrentWeekDateBounds(referenceDate);
+
+  let weekRolledOver = false;
+  let dateChanged = false;
+
+  try {
+    const prevMonday = localStorage.getItem(STORAGE_KEY_ACTIVE_WEEK_MONDAY);
+    const prevDate = localStorage.getItem(STORAGE_KEY_LAST_ACTIVE_DATE);
+
+    if (prevMonday && prevMonday !== mondayStr) {
+      weekRolledOver = true;
+      localStorage.removeItem(STORAGE_KEY_COMPLETED_DAYS);
+      localStorage.removeItem(STORAGE_KEY_PERF_METRICS);
+      localStorage.removeItem(STORAGE_KEY_REST_HABITS);
+
+      // Reset undated cached plan items that carried over "Completed" from a previous week
+      try {
+        const rawCachedPlan = localStorage.getItem(STORAGE_KEY_PLAN);
+        if (rawCachedPlan) {
+          const parsedPlan = JSON.parse(rawCachedPlan);
+          if (Array.isArray(parsedPlan)) {
+            const resetPlan = parsedPlan.map((p) => {
+              const pDate = p?.date || p?.Date;
+              if (!pDate && (p?.status === 'Completed' || p?.Status === 'Completed')) {
+                return {
+                  ...p,
+                  status: 'Scheduled',
+                  Status: 'Scheduled',
+                  completedWorkoutId: '',
+                  Completed_Workout_ID: '',
+                  perfMetric: '',
+                };
+              }
+              return p;
+            });
+            localStorage.setItem(STORAGE_KEY_PLAN, JSON.stringify(resetPlan));
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (prevDate && prevDate !== todayStr) {
+      dateChanged = true;
+    }
+
+    localStorage.setItem(STORAGE_KEY_ACTIVE_WEEK_MONDAY, mondayStr);
+    localStorage.setItem(STORAGE_KEY_LAST_ACTIVE_DATE, todayStr);
+  } catch {
+    // ignore storage errors
+  }
+
+  // Gather un-synced pending mutations from sync_outbox so offline user logs are preserved
+  const pendingActions = await getPendingSyncActions().catch(() => []);
+  const pendingSessionIds = new Set();
+  const pendingDates = new Set();
+
+  pendingActions.forEach((entry) => {
+    const payload = entry?.payload || {};
+    const sess = payload.session || payload;
+    const sId = String(sess.sessionId || sess.Workout_ID || payload.sessionId || '').trim();
+    const sDate = String(sess.date || sess.Date || payload.date || '').trim();
+    if (sId) pendingSessionIds.add(sId);
+    if (sDate) pendingDates.add(sDate);
+  });
+
+  const effectivePlan = Array.isArray(planList) && planList.length > 0
+    ? planList
+    : (() => {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY_PLAN);
+          return raw ? JSON.parse(raw) : [];
+        } catch {
+          return [];
+        }
+      })();
+
+  const invalidatedDays = [];
+  const scheduledDatesMap = new Map(); // dateStr -> planItem
+
+  if (Array.isArray(effectivePlan) && effectivePlan.length > 0) {
+    // Determine if effectivePlan has dated items for this week
+    const hasCurrentWeekDatedItems = effectivePlan.some((item) => {
+      const d = item?.date || item?.Date;
+      return d && weekDateSet.has(d);
+    });
+
+    effectivePlan.forEach((item, idx) => {
+      if (!item || typeof item !== 'object') return;
+      const dayNum = Number(item.dayNumber ?? item.Day_Number ?? idx + 1);
+      const itemDate = String(item.date || item.Date || '').trim();
+      const status = String(item.status ?? item.Status ?? 'Scheduled').trim();
+      const completedId = String(
+        item.completedWorkoutId ?? item.Completed_Workout_ID ?? ''
+      ).trim();
+
+      // Only evaluate items belonging to the current week (or undated items when no dated items exist for this week)
+      const belongsToCurrentWeek = itemDate
+        ? weekDateSet.has(itemDate)
+        : !hasCurrentWeekDatedItems;
+
+      if (!belongsToCurrentWeek) return;
+
+      const resolvedDate = itemDate || weekDates[dayNum - 1] || '';
+      const isScheduled = status.toLowerCase() !== 'completed' && !completedId;
+
+      if (isScheduled && !pendingDates.has(resolvedDate)) {
+        invalidatedDays.push(dayNum);
+        if (resolvedDate) {
+          scheduledDatesMap.set(resolvedDate, {
+            ...item,
+            dayNumber: dayNum,
+            date: resolvedDate,
+          });
+        }
+      }
+    });
+  }
+
+  // Clean invalidated day numbers from localStorage completion & performance caches
+  if (invalidatedDays.length > 0) {
+    try {
+      const rawCompleted = localStorage.getItem(STORAGE_KEY_COMPLETED_DAYS);
+      if (rawCompleted) {
+        const parsed = JSON.parse(rawCompleted);
+        if (Array.isArray(parsed)) {
+          const filtered = parsed.filter((d) => !invalidatedDays.includes(Number(d)));
+          localStorage.setItem(STORAGE_KEY_COMPLETED_DAYS, JSON.stringify(filtered));
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const rawMetrics = localStorage.getItem(STORAGE_KEY_PERF_METRICS);
+      if (rawMetrics) {
+        const parsed = JSON.parse(rawMetrics);
+        if (parsed && typeof parsed === 'object') {
+          invalidatedDays.forEach((d) => {
+            delete parsed[d];
+            const dateKey = weekDates[d - 1];
+            if (dateKey) delete parsed[dateKey];
+          });
+          localStorage.setItem(STORAGE_KEY_PERF_METRICS, JSON.stringify(parsed));
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Re-validate local IndexedDB sessions against scheduled plan rows and remote sessions
+  const removedSessionIds = [];
+  try {
+    const localSessions = await getSessions();
+    const remoteIdSet = Array.isArray(remoteSessions)
+      ? new Set(
+          remoteSessions
+            .map((s) => String(s?.sessionId || s?.Workout_ID || s?.id || '').trim())
+            .filter(Boolean)
+        )
+      : null;
+
+    for (const sess of localSessions) {
+      if (!sess || typeof sess !== 'object') continue;
+      const sId = String(sess.sessionId || sess.Workout_ID || sess.id || '').trim();
+      if (!sId || pendingSessionIds.has(sId)) continue;
+
+      const sDate =
+        sess.date ||
+        sess.Date ||
+        (sess.startedAt ? getLocalDateString(sess.startedAt) : '');
+
+      // 1. Remove synthetic review fallback sessions that were never real logged sessions
+      if (sId.startsWith('sess_review_')) {
+        await deleteSession(sId);
+        removedSessionIds.push(sId);
+        continue;
+      }
+
+      // 2. Strip cross-week dayNumber / planDayNumber links from historical sessions outside the active week
+      // so they can only ever match their own calendar date and never bleed into the current week's plan cards
+      if (sDate && !weekDateSet.has(sDate)) {
+        // If remote sessions were explicitly synced and this session is not in remote or outbox:
+        if (remoteIdSet !== null && !remoteIdSet.has(sId)) {
+          await deleteSession(sId);
+          removedSessionIds.push(sId);
+          continue;
+        }
+      }
+
+      // 3. If a session falls in the current week:
+      if (sDate && weekDateSet.has(sDate)) {
+        // If full remote sessions list was fetched and this session is missing from backend and outbox, remove it
+        if (remoteIdSet !== null && !remoteIdSet.has(sId)) {
+          await deleteSession(sId);
+          removedSessionIds.push(sId);
+          continue;
+        }
+
+        // If authoritative Plan row for this exact date explicitly states "Scheduled" (and no Completed_Workout_ID)
+        if (authoritativePlan && scheduledDatesMap.has(sDate) && (remoteIdSet === null || !remoteIdSet.has(sId))) {
+          const planDay = scheduledDatesMap.get(sDate);
+          const rawActivity = String(planDay.activityType ?? planDay.Activity_Type ?? 'workout').toLowerCase();
+          const sType = String(sess.type || sess.Workout_Type || 'workout').toLowerCase();
+          const isPlanRun = rawActivity.includes('run');
+          const isSessRun = sType.includes('run');
+
+          if ((isPlanRun && isSessRun) || (!isPlanRun && !isSessRun && sType !== 'walk' && sType !== 'pickleball')) {
+            await deleteSession(sId);
+            removedSessionIds.push(sId);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('revalidateSessionsAgainstPlan IndexedDB check error:', err);
+  }
+
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(
+      new CustomEvent('apexfit:cache-invalidated', {
+        detail: {
+          invalidatedDays,
+          removedSessionIds,
+          weekRolledOver,
+          dateChanged,
+          mondayStr,
+          todayStr,
+        },
+      })
+    );
+  }
+
+  return {
+    invalidatedDays,
+    removedSessionIds,
+    weekRolledOver,
+    dateChanged,
+  };
+};
+
+/**
+ * Initializes a global network & visibility listener that flushes the outbox whenever
+ * the browser goes online or returns to the foreground, and re-validates date/week state.
  *
  * @param {Function} [onSyncComplete] - Callback receiving flush results
- * @returns {Function} Cleanup function to remove event listener
+ * @returns {Function} Cleanup function to remove event listeners
  */
 export const initSyncManager = (onSyncComplete) => {
   if (typeof window === 'undefined') return () => {};
@@ -1367,7 +1690,29 @@ export const initSyncManager = (onSyncComplete) => {
     }
   };
 
+  const handleForegroundOrFocus = async () => {
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      return;
+    }
+    try {
+      await revalidateSessionsAgainstPlan();
+      if (typeof navigator !== 'undefined' && navigator.onLine) {
+        const result = await flushSyncOutbox();
+        if (onSyncComplete && result.flushed > 0) {
+          onSyncComplete(result);
+        }
+        window.dispatchEvent(new CustomEvent('apexfit:app-foregrounded'));
+      }
+    } catch (err) {
+      console.warn('Foreground revalidation warning:', err);
+    }
+  };
+
   window.addEventListener('online', handleOnline);
+  window.addEventListener('focus', handleForegroundOrFocus);
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', handleForegroundOrFocus);
+  }
 
   // Attempt initial flush if online
   if (navigator.onLine) {
@@ -1382,6 +1727,10 @@ export const initSyncManager = (onSyncComplete) => {
 
   return () => {
     window.removeEventListener('online', handleOnline);
+    window.removeEventListener('focus', handleForegroundOrFocus);
+    if (typeof document !== 'undefined') {
+      document.removeEventListener('visibilitychange', handleForegroundOrFocus);
+    }
   };
 };
 

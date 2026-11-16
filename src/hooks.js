@@ -220,6 +220,55 @@ export const useComponentLogic = () => {
     }
   }, [completedDayNumbers]);
 
+  // Synchronize completedDayNumbers when backend Plan updates or cache invalidation runs
+  useEffect(() => {
+    const handleCacheInvalidated = (e) => {
+      const invalidated = e?.detail?.invalidatedDays;
+      if (e?.detail?.weekRolledOver) {
+        setCompletedDayNumbers([]);
+        return;
+      }
+      if (Array.isArray(invalidated) && invalidated.length > 0) {
+        setCompletedDayNumbers((prev) =>
+          prev.filter((d) => !invalidated.includes(Number(d)))
+        );
+      } else {
+        try {
+          const saved = localStorage.getItem(STORAGE_KEY_COMPLETED_DAYS);
+          setCompletedDayNumbers(saved ? JSON.parse(saved) : []);
+        } catch {
+          setCompletedDayNumbers([]);
+        }
+      }
+    };
+
+    const handlePlanUpdated = (e) => {
+      const planList = e?.detail;
+      if (!Array.isArray(planList) || planList.length === 0) return;
+      const scheduledDays = planList
+        .filter((item) => {
+          const st = String(item?.status ?? item?.Status ?? 'Scheduled').toLowerCase();
+          const cId = String(item?.completedWorkoutId ?? item?.Completed_Workout_ID ?? '').trim();
+          return st === 'scheduled' && !cId;
+        })
+        .map((item) => Number(item.dayNumber ?? item.Day_Number))
+        .filter((n) => !Number.isNaN(n));
+
+      if (scheduledDays.length > 0) {
+        setCompletedDayNumbers((prev) =>
+          prev.filter((d) => !scheduledDays.includes(Number(d)))
+        );
+      }
+    };
+
+    window.addEventListener('apexfit:cache-invalidated', handleCacheInvalidated);
+    window.addEventListener('apexfit:plan-updated', handlePlanUpdated);
+    return () => {
+      window.removeEventListener('apexfit:cache-invalidated', handleCacheInvalidated);
+      window.removeEventListener('apexfit:plan-updated', handlePlanUpdated);
+    };
+  }, []);
+
   // Background Sync Outbox Manager: automatically flushes pending offline actions on reconnection
   useEffect(() => {
     const cleanup = initSyncManager((res) => {
@@ -766,7 +815,9 @@ export const useComponentLogic = () => {
           setCompletedDayNumbers((prev) =>
             prev.includes(planDayNum) ? prev : [...prev, planDayNum]
           );
-          updatePlanDayStatus(planDayNum, 'Completed', gasUrlInput);
+          updatePlanDayStatus(planDayNum, 'Completed', gasUrlInput, {
+            date: completedHistorySession.date,
+          });
 
           try {
             const perfSnapshot = `${payload.session.totalVolumeLbs.toLocaleString()} lbs total volume • ${allCompletedSets.length} sets`;
@@ -774,6 +825,9 @@ export const useComponentLogic = () => {
               localStorage.getItem('workout_tracker_perf_metrics_v1') || '{}'
             );
             savedMetrics[planDayNum] = perfSnapshot;
+            if (completedHistorySession.date) {
+              savedMetrics[completedHistorySession.date] = perfSnapshot;
+            }
             localStorage.setItem('workout_tracker_perf_metrics_v1', JSON.stringify(savedMetrics));
           } catch {
             // ignore
@@ -1052,8 +1106,10 @@ export const useComponentLogic = () => {
       // fallback
     }
 
+    const todayStr = getLocalDateString(now);
     const todayPlanItem =
-      activePlan.find((p) => p.dayNumber === todaysDayNumber) ||
+      activePlan.find((p) => (p.date || p.Date) === todayStr) ||
+      activePlan.find((p) => !(p.date || p.Date) && p.dayNumber === todaysDayNumber) ||
       DEFAULT_WEEKLY_PLAN.find((p) => p.dayNumber === todaysDayNumber) ||
       DEFAULT_WEEKLY_PLAN[0];
 

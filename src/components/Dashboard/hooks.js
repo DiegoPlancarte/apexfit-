@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   DEFAULT_WEEKLY_PLAN,
   fetchWeeklyPlan,
+  pullLatestBackendData,
   updatePlanDayStatus,
   normalizeWeeklyPlan,
   STORAGE_KEY_PLAN,
@@ -9,17 +10,22 @@ import {
   STORAGE_KEY_HISTORY_LOG,
   normalizeSessionRecord,
   reconcileAndMergeSessions,
+  isWearableSource,
+  getApiUrl,
 } from '../../services/api';
-import { getSessions } from '../../services/db';
-import { getLocalDateString } from '../../utils/date';
+import {
+  getSessions,
+  revalidateSessionsAgainstPlan,
+} from '../../services/db';
+import { getLocalDateString, parseLocalDate } from '../../utils/date';
 
 const STORAGE_KEY_REST_HABITS = 'workout_tracker_rest_habits_v1';
 const STORAGE_KEY_PERF_METRICS = 'workout_tracker_perf_metrics_v1';
 export const STEP_GOAL = 10000;
 
 // Calculates the dates for Day 1 through Day 7 of the current week starting on Monday
-export const getWeekDates = (baseDate = new Date()) => {
-  const d = new Date(baseDate);
+export const getWeekDates = (baseDate = new Date(), overrideTodayStr = null) => {
+  const d = parseLocalDate(baseDate);
   const currentDayOfWeek = d.getDay(); // 0 is Sunday, 1 is Monday...
   // Distance to Monday (if Sunday (0), distance is -6 days)
   const distanceToMonday = currentDayOfWeek === 0 ? -6 : 1 - currentDayOfWeek;
@@ -29,7 +35,7 @@ export const getWeekDates = (baseDate = new Date()) => {
   monday.setHours(0, 0, 0, 0);
 
   const days = [];
-  const todayStr = getLocalDateString(new Date());
+  const todayStr = overrideTodayStr || getLocalDateString(new Date());
 
   for (let i = 0; i < 7; i++) {
     const cur = new Date(monday);
@@ -50,6 +56,150 @@ export const getWeekDates = (baseDate = new Date()) => {
   }
 
   return days;
+};
+
+/**
+ * Checks whether a session's activity type is compatible with a planned day item.
+ *
+ * @param {Object} session
+ * @param {Object} dayItem
+ * @returns {boolean}
+ */
+export const isSessionCompatibleWithPlanDay = (session, dayItem) => {
+  if (!session || !dayItem || dayItem.activityType === 'rest') return false;
+  const sType = String(session.type || session.Workout_Type || 'workout').toLowerCase().trim();
+  const planActivity = String(dayItem.activityType || 'workout').toLowerCase().trim();
+  const rawPlanActivity = String(dayItem.Activity_Type || dayItem.title || '').toLowerCase();
+
+  if (planActivity === 'run') {
+    if (rawPlanActivity.includes('walk')) {
+      return sType === 'walk' || sType === 'run';
+    }
+    return sType === 'run' || session.Workout_Type === 'Run';
+  }
+
+  if (planActivity === 'workout') {
+    if (sType === 'run' || sType === 'walk' || sType === 'pickleball' || sType === 'cardio') {
+      return false;
+    }
+    if (session.Workout_Type === 'Run' || session.Workout_Type === 'Walk') {
+      return false;
+    }
+    // Passive wearable-only entries with zero sets and zero volume should not complete a lifting plan card
+    if (isWearableSource(session) && !session.isMergedTelemetry) {
+      const setsCount =
+        Number(session.totalSets ?? session.Total_Sets ?? 0) ||
+        (Array.isArray(session.exercises)
+          ? session.exercises.reduce((acc, ex) => acc + (ex.sets?.length || 0), 0)
+          : 0);
+      const vol = Number(session.totalVolumeLbs ?? session.Total_Volume_Lbs ?? 0);
+      if (setsCount === 0 && vol === 0) return false;
+    }
+    return true;
+  }
+
+  return false;
+};
+
+/**
+ * Strictly matches a completed session record to a scheduled plan card within the active week's date bounds.
+ * Prevents falling back to historical or cross-week session references when dayNumber or workout title collide.
+ *
+ * @param {Object} dayItem
+ * @param {Object} dateMeta
+ * @param {Array<Object>} sessionsList
+ * @param {Set<string>} [weekDateSet]
+ * @returns {Object|null}
+ */
+export const matchSessionToPlanDay = (
+  dayItem,
+  dateMeta,
+  sessionsList = [],
+  weekDateSet = null
+) => {
+  if (!dayItem || dayItem.activityType === 'rest' || !Array.isArray(sessionsList) || sessionsList.length === 0) {
+    return null;
+  }
+
+  const targetDate = String(
+    dayItem.date || dayItem.Date || dateMeta?.dateStr || ''
+  ).trim();
+
+  // Require a valid ISO calendar date within the active week bounds
+  if (!targetDate || targetDate.startsWith('day-')) {
+    return null;
+  }
+  if (weekDateSet instanceof Set && !weekDateSet.has(targetDate)) {
+    return null;
+  }
+
+  // Filter candidate sessions strictly to the active week's date bounds AND the card's target date
+  const dateBoundedCandidates = sessionsList.filter((s) => {
+    if (!s || typeof s !== 'object') return false;
+    const sessDate =
+      s.date || s.Date || (s.startedAt ? getLocalDateString(s.startedAt) : '');
+    if (!sessDate) return false;
+    if (weekDateSet instanceof Set && !weekDateSet.has(sessDate)) return false;
+    return sessDate === targetDate;
+  });
+
+  if (dateBoundedCandidates.length === 0) {
+    return null;
+  }
+
+  // 1. Explicit session ID match (must still reside within active week date bounds on targetDate)
+  const targetSessionId = String(
+    dayItem.completedWorkoutId ||
+      dayItem.Completed_Workout_ID ||
+      dayItem.sessionId ||
+      dayItem.id ||
+      ''
+  ).trim();
+
+  if (targetSessionId) {
+    const idMatch = dateBoundedCandidates.find(
+      (s) =>
+        s.sessionId === targetSessionId ||
+        s.Workout_ID === targetSessionId ||
+        s.id === targetSessionId
+    );
+    if (idMatch) return idMatch;
+  }
+
+  const compatibleCandidates = dateBoundedCandidates.filter((s) =>
+    isSessionCompatibleWithPlanDay(s, dayItem)
+  );
+
+  if (compatibleCandidates.length === 0) {
+    return null;
+  }
+
+  // 2. Same-date match with matching plan dayNumber or workout title
+  const targetDayNumber = dayItem.dayNumber ?? dayItem.Day_Number;
+  const targetTitle = String(dayItem.title || dayItem.Workout_Title || '')
+    .toLowerCase()
+    .trim();
+
+  const specificMatch = compatibleCandidates.find((s) => {
+    const sessDayNumber = s.dayNumber ?? s.day_index ?? s.planDayNumber;
+    if (targetDayNumber != null && sessDayNumber != null && Number(sessDayNumber) === Number(targetDayNumber)) {
+      return true;
+    }
+    const sName = String(s.workoutName || s.Workout_Name || '')
+      .toLowerCase()
+      .trim();
+    if (targetTitle && sName && sName === targetTitle) {
+      return true;
+    }
+    return false;
+  });
+
+  if (specificMatch) {
+    return specificMatch;
+  }
+
+  // 3. Same-date compatible activity match
+  return compatibleCandidates[0] || null;
 };
 
 export const formatWeekRange = (mondayDate) => {
@@ -75,6 +225,8 @@ export const useComponentLogic = ({
   activePlanDayNumber = null,
   onBlockedAction = () => {},
 } = {}) => {
+  const [todayStr, setTodayStr] = useState(() => getLocalDateString(new Date()));
+
   // Current Monday for 7-day week window navigation
   const [currentMonday, setCurrentMonday] = useState(() => {
     const now = new Date();
@@ -86,21 +238,24 @@ export const useComponentLogic = ({
     return m;
   });
 
-  const weekDates = useMemo(() => getWeekDates(currentMonday), [currentMonday]);
+  const weekDates = useMemo(
+    () => getWeekDates(currentMonday, todayStr),
+    [currentMonday, todayStr]
+  );
   const todayDateObj = useMemo(
     () => weekDates.find((w) => w.isToday) || weekDates[0],
     [weekDates]
   );
 
   const thisMonday = useMemo(() => {
-    const now = new Date();
+    const now = parseLocalDate(todayStr);
     const day = now.getDay();
     const dist = day === 0 ? -6 : 1 - day;
     const m = new Date(now);
     m.setDate(now.getDate() + dist);
     m.setHours(0, 0, 0, 0);
     return m;
-  }, []);
+  }, [todayStr]);
 
   const isCurrentWeek = useMemo(() => {
     return currentMonday.getTime() === thisMonday.getTime();
@@ -274,13 +429,41 @@ export const useComponentLogic = ({
       }
     };
 
+    const handleCacheInvalidated = () => {
+      try {
+        const savedMetrics = localStorage.getItem(STORAGE_KEY_PERF_METRICS);
+        setPerfMetricsMap(savedMetrics ? JSON.parse(savedMetrics) : {});
+      } catch {
+        setPerfMetricsMap({});
+      }
+      try {
+        const savedHabits = localStorage.getItem(STORAGE_KEY_REST_HABITS);
+        if (savedHabits) setRestHabitsMap(JSON.parse(savedHabits));
+      } catch {
+        // ignore
+      }
+      try {
+        const savedPlan = localStorage.getItem(STORAGE_KEY_PLAN);
+        if (savedPlan) {
+          const parsed = JSON.parse(savedPlan);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setWeeklyPlan(normalizeWeeklyPlan(parsed));
+          }
+        }
+      } catch {
+        // ignore
+      }
+    };
+
     window.addEventListener('apexfit:steps-updated', handleStepsUpdated);
     window.addEventListener('apexfit:plan-updated', handlePlanUpdated);
+    window.addEventListener('apexfit:cache-invalidated', handleCacheInvalidated);
 
     return () => {
       isMounted = false;
       window.removeEventListener('apexfit:steps-updated', handleStepsUpdated);
       window.removeEventListener('apexfit:plan-updated', handlePlanUpdated);
+      window.removeEventListener('apexfit:cache-invalidated', handleCacheInvalidated);
     };
   }, []);
 
@@ -333,10 +516,32 @@ export const useComponentLogic = ({
       });
 
     const handleSync = () => refreshLoggedSessions();
+    const handleForegroundSync = async () => {
+      const latestToday = getLocalDateString(new Date());
+      if (latestToday !== todayStr) {
+        setTodayStr(latestToday);
+        const now = parseLocalDate(latestToday);
+        const day = now.getDay();
+        const dist = day === 0 ? -6 : 1 - day;
+        const nextMon = new Date(now);
+        nextMon.setDate(now.getDate() + dist);
+        nextMon.setHours(0, 0, 0, 0);
+        setCurrentMonday(nextMon);
+        setSelectedDayNumber(day === 0 ? 7 : day);
+      }
+      await revalidateSessionsAgainstPlan();
+      if (typeof navigator !== 'undefined' && navigator.onLine && getApiUrl()) {
+        await pullLatestBackendData().catch(() => {});
+      }
+      refreshLoggedSessions();
+    };
+
     window.addEventListener('apexfit:sync-flushed', handleSync);
     window.addEventListener('apexfit:session-updated', handleSync);
     window.addEventListener('apexfit:run-logged', handleSync);
     window.addEventListener('apexfit:plan-updated', handleSync);
+    window.addEventListener('apexfit:cache-invalidated', handleSync);
+    window.addEventListener('apexfit:app-foregrounded', handleForegroundSync);
 
     return () => {
       isMounted = false;
@@ -344,8 +549,10 @@ export const useComponentLogic = ({
       window.removeEventListener('apexfit:session-updated', handleSync);
       window.removeEventListener('apexfit:run-logged', handleSync);
       window.removeEventListener('apexfit:plan-updated', handleSync);
+      window.removeEventListener('apexfit:cache-invalidated', handleSync);
+      window.removeEventListener('apexfit:app-foregrounded', handleForegroundSync);
     };
-  }, [refreshLoggedSessions]);
+  }, [refreshLoggedSessions, todayStr]);
 
   const handleRefreshPlan = async () => {
     setIsRefreshing(true);
@@ -415,16 +622,27 @@ export const useComponentLogic = ({
       onBlockedAction();
       return;
     }
-    const targetDay = weeklyPlan.find((d) => d.dayNumber === dayNumber);
+    const targetDateStr = weekDates.find((w) => w.dayNumber === dayNumber)?.dateStr || '';
+    const targetDay =
+      (targetDateStr &&
+        weeklyPlan.find((d) => (d.date || d.Date) === targetDateStr)) ||
+      weeklyPlan.find((d) => !(d.date || d.Date) && d.dayNumber === dayNumber) ||
+      weeklyPlan.find((d) => d.dayNumber === dayNumber);
     if (!targetDay) return;
     const nextStatus = targetDay.status === 'Completed' ? 'Scheduled' : 'Completed';
 
     setWeeklyPlan((prev) =>
-      prev.map((d) => (d.dayNumber === dayNumber ? { ...d, status: nextStatus } : d))
+      prev.map((d) => {
+        const dDate = d.date || d.Date;
+        if (targetDateStr && dDate) {
+          return dDate === targetDateStr ? { ...d, status: nextStatus, Status: nextStatus } : d;
+        }
+        return d.dayNumber === dayNumber ? { ...d, status: nextStatus, Status: nextStatus } : d;
+      })
     );
 
     // Sync to Apps Script Web App
-    updatePlanDayStatus(dayNumber, nextStatus);
+    updatePlanDayStatus(dayNumber, nextStatus, undefined, { date: targetDateStr });
   };
 
   const handleToggleRestHabit = (dayNumber, habitKey) => {
@@ -455,6 +673,9 @@ export const useComponentLogic = ({
     }));
   };
 
+  // Resolve plan and session data strictly for this week window (no duplicate bleeding into adjacent weeks)
+  const weekDateSet = useMemo(() => new Set(weekDates.map((w) => w.dateStr)), [weekDates]);
+
   const [selectedWorkoutForReview, setSelectedWorkoutForReview] = useState(null);
 
   const handleOpenWorkoutReview = async (dayItem, dateMeta) => {
@@ -468,60 +689,11 @@ export const useComponentLogic = ({
 
     const rawSessions = Array.isArray(sessions) ? sessions : [];
     const sessionList = reconcileAndMergeSessions(rawSessions).map(normalizeSessionRecord);
-    const targetDate = dateMeta?.dateStr || '';
+    const targetDate = dateMeta?.dateStr || dayItem?.date || dayItem?.Date || '';
     const targetDayNumber = dayItem?.dayNumber;
-    const targetSessionId = dayItem?.sessionId || dayItem?.id;
 
-    // 1. Look up by exact session identifier
-    let found = targetSessionId
-      ? sessionList.find((s) => s.sessionId === targetSessionId || s.id === targetSessionId)
-      : null;
-
-    // 2. Look up by matching date AND (day number OR workout title)
-    if (!found && targetDate) {
-      found = sessionList.find(
-        (s) =>
-          s.type !== 'run' &&
-          (s.date === targetDate || s.Date === targetDate || (s.startedAt && s.startedAt.startsWith(targetDate))) &&
-          ((targetDayNumber != null &&
-            (s.day_index === targetDayNumber || s.dayNumber === targetDayNumber || s.planDayNumber === targetDayNumber)) ||
-            (dayItem.title &&
-              (s.workoutName?.toLowerCase() === dayItem.title.toLowerCase() ||
-                s.Workout_Name?.toLowerCase() === dayItem.title.toLowerCase())))
-      );
-    }
-
-    // 3. Look up by matching ISO date string alone
-    if (!found && targetDate) {
-      found = sessionList.find(
-        (s) =>
-          s.type !== 'run' &&
-          (s.date === targetDate ||
-            s.Date === targetDate ||
-            (s.startedAt && s.startedAt.startsWith(targetDate)))
-      );
-    }
-
-    // 4. Look up by matching plan day index / day number
-    if (!found && targetDayNumber != null) {
-      found = sessionList.find(
-        (s) =>
-          s.type !== 'run' &&
-          (s.day_index === targetDayNumber ||
-            s.dayNumber === targetDayNumber ||
-            s.planDayNumber === targetDayNumber)
-      );
-    }
-
-    // 5. Look up by matching workout title
-    if (!found && dayItem.title) {
-      found = sessionList.find(
-        (s) =>
-          s.type !== 'run' &&
-          (s.workoutName?.toLowerCase() === dayItem.title.toLowerCase() ||
-            s.Workout_Name?.toLowerCase() === dayItem.title.toLowerCase())
-      );
-    }
+    // Strictly match within the active week's date bounds (never fall back to historical sessions from other weeks)
+    let found = matchSessionToPlanDay(dayItem, dateMeta, sessionList, weekDateSet);
 
     if (!found) {
       // Synthesize a complete session record from dayItem
@@ -545,9 +717,10 @@ export const useComponentLogic = ({
       );
 
       const resolvedDate = targetDate || getLocalDateString();
+      const syntheticId = `sess_review_${resolvedDate || dayItem.dayNumber}`;
       found = {
-        sessionId: `sess_review_${targetDate || dayItem.dayNumber}_${Date.now()}`,
-        id: `sess_review_${targetDate || dayItem.dayNumber}_${Date.now()}`,
+        sessionId: syntheticId,
+        id: syntheticId,
         date: resolvedDate,
         Date: resolvedDate,
         workoutName: dayItem.title || 'Workout Session',
@@ -604,17 +777,9 @@ export const useComponentLogic = ({
 
     const list = Array.isArray(rawSessions) ? rawSessions : [];
     const sessionList = reconcileAndMergeSessions(list).map(normalizeSessionRecord);
-    const targetDate = dateMeta?.dateStr || '';
-    const targetDayNumber = dayItem?.dayNumber;
 
-    let found = sessionList.find(
-      (s) =>
-        (s.type === 'run' || s.Workout_Type === 'Run') &&
-        (s.day_index === targetDayNumber ||
-          s.dayNumber === targetDayNumber ||
-          s.planDayNumber === targetDayNumber ||
-          (targetDate && (s.date === targetDate || s.Date === targetDate || (s.startedAt && s.startedAt.startsWith(targetDate)))))
-    );
+    // Strictly match within the active week's date bounds
+    const found = matchSessionToPlanDay(dayItem, dateMeta, sessionList, weekDateSet);
 
     if (found) {
       setSelectedRunForDetails(found);
@@ -661,9 +826,6 @@ export const useComponentLogic = ({
     }
   };
 
-  // Resolve plan and session data strictly for this week window (no duplicate bleeding into adjacent weeks)
-  const weekDateSet = useMemo(() => new Set(weekDates.map((w) => w.dateStr)), [weekDates]);
-
   const weekSessions = useMemo(() => {
     if (!Array.isArray(loggedSessions)) return [];
     return loggedSessions.filter((s) => {
@@ -687,7 +849,21 @@ export const useComponentLogic = ({
 
     // 2. Generic undated plan items belong ONLY to the active current week
     if (isCurrentWeek) {
-      return weeklyPlan;
+      const undatedItems = weeklyPlan.filter((item) => !(item.date || item.Date));
+      if (undatedItems.length > 0) {
+        return undatedItems;
+      }
+      // If weeklyPlan only had dated items from a stale/different week, strip stale dates and reset completion state
+      return weeklyPlan.map((item) => ({
+        ...item,
+        date: undefined,
+        Date: undefined,
+        status: 'Scheduled',
+        Status: 'Scheduled',
+        completedWorkoutId: undefined,
+        Completed_Workout_ID: undefined,
+        perfMetric: '',
+      }));
     }
 
     // 3. For adjacent past/future weeks without dedicated plan records, do NOT duplicate
@@ -699,7 +875,7 @@ export const useComponentLogic = ({
     if (rawWeekPlan.length > 0) {
       return rawWeekPlan.map((dayItem) => {
         const dateMeta =
-          weekDates.find((w) => w.dayNumber === dayItem.dayNumber || (dayItem.date && w.dateStr === dayItem.date)) || {
+          weekDates.find((w) => (dayItem.date && w.dateStr === dayItem.date) || w.dayNumber === dayItem.dayNumber) || {
             dayNumber: dayItem.dayNumber,
             formattedDate: dayItem.dayName || `Day ${dayItem.dayNumber}`,
             isToday: false,
@@ -710,48 +886,36 @@ export const useComponentLogic = ({
         const isStepGoalMet = daySteps >= STEP_GOAL;
         const isRest = dayItem.activityType === 'rest';
 
-        // Auto-detect completed matching session from local IndexedDB/history
-        const matchingSession = loggedSessions.find((s) => {
-          if (isRest) return false;
-          const sessDate = s.date || s.Date || (s.startedAt ? s.startedAt.split('T')[0] : '');
-          const sessDayNumber = s.dayNumber ?? s.day_index ?? s.planDayNumber;
+        // Strictly match completed session within this week's active date bounds
+        const matchingSession = matchSessionToPlanDay(
+          dayItem,
+          dateMeta,
+          weekSessions,
+          weekDateSet
+        );
 
-          // 1. Exact date match with compatible activity type
-          if (dateMeta.dateStr && sessDate === dateMeta.dateStr) {
-            if (dayItem.activityType === 'run' && (s.type === 'run' || s.Workout_Type === 'Run' || s.type === 'cardio' || s.type === 'walk')) {
-              return true;
-            }
-            if (dayItem.activityType === 'workout' && s.type !== 'run' && s.type !== 'walk') {
-              return true;
-            }
-          }
-
-          // 2. Explicit plan day link (for current week)
-          if (sessDayNumber != null && sessDayNumber === dayItem.dayNumber) {
-            if (!sessDate || sessDate === dateMeta.dateStr || isCurrentWeek) {
-              if (dayItem.activityType === 'run' && (s.type === 'run' || s.Workout_Type === 'Run')) return true;
-              if (dayItem.activityType === 'workout' && s.type !== 'run') return true;
-            }
-          }
-
-          // 3. Title match on active training date
-          if (dateMeta.dateStr && sessDate === dateMeta.dateStr && dayItem.title) {
-            const sName = (s.workoutName || s.Workout_Name || '').toLowerCase();
-            if (sName && sName === dayItem.title.toLowerCase()) return true;
-          }
-
-          return false;
-        });
+        const hasExplicitBackendDate = Boolean(dayItem.date || dayItem.Date);
+        const isExplicitlyScheduledOnDate =
+          hasExplicitBackendDate &&
+          String(dayItem.status ?? dayItem.Status ?? 'Scheduled').toLowerCase() === 'scheduled' &&
+          !(dayItem.completedWorkoutId || dayItem.Completed_Workout_ID);
 
         const isWorkoutDone =
           dayItem.status === 'Completed' ||
-          completedDayNumbers.includes(dayItem.dayNumber) ||
           Boolean(matchingSession) ||
+          (isCurrentWeek &&
+            !isExplicitlyScheduledOnDate &&
+            completedDayNumbers.includes(dayItem.dayNumber)) ||
           isRest;
 
         const isFullyComplete = isWorkoutDone && isStepGoalMet;
 
-        let derivedPerf = perfMetricsMap[dayItem.dayNumber] || dayItem.perfMetric || '';
+        let derivedPerf =
+          (isWorkoutDone
+            ? perfMetricsMap[dateMeta.dateStr] ||
+              (!hasExplicitBackendDate && isCurrentWeek ? perfMetricsMap[dayItem.dayNumber] : '') ||
+              dayItem.perfMetric
+            : '') || '';
         if (!derivedPerf && matchingSession) {
           if (matchingSession.type === 'run' || matchingSession.Workout_Type === 'Run') {
             const dist = matchingSession.distanceMiles || matchingSession.distance || 0;
@@ -846,7 +1010,7 @@ export const useComponentLogic = ({
 
     // No plan and no sessions for this week -> empty state
     return [];
-  }, [rawWeekPlan, weekDates, stepsMap, loggedSessions, completedDayNumbers, isCurrentWeek, isPastWeek, weekSessions, perfMetricsMap, restHabitsMap]);
+  }, [rawWeekPlan, weekDates, weekDateSet, stepsMap, completedDayNumbers, isCurrentWeek, isPastWeek, weekSessions, perfMetricsMap, restHabitsMap]);
 
   const stepProgressPct = Math.min(100, Math.round((currentDaySteps / STEP_GOAL) * 100));
   const isSelectedDayFullyComplete =

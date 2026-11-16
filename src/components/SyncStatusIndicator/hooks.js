@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
-import { useSyncManager } from '../../services/db';
+import { useSyncManager, revalidateSessionsAgainstPlan } from '../../services/db';
+import { pullLatestBackendData } from '../../services/api';
 
 /**
  * Custom hook for the SyncStatusIndicator component.
@@ -12,10 +13,15 @@ export const useComponentLogic = () => {
     if (isSyncing) return;
     try {
       await triggerFlush();
+      if (isOnline) {
+        await pullLatestBackendData();
+      } else {
+        await revalidateSessionsAgainstPlan();
+      }
     } catch (err) {
       console.warn('Manual sync flush error:', err);
     }
-  }, [isSyncing, triggerFlush]);
+  }, [isSyncing, isOnline, triggerFlush]);
 
   let statusState = 'synced';
   let statusLabel = 'Synced';

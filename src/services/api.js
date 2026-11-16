@@ -4,7 +4,15 @@
  * and dispatches POST requests to the deployed doPost(e) endpoint.
  */
 
-import { getSessions, saveSession, saveBodyMetric, queueSyncAction, runAllSyncs } from './db';
+import {
+  getSessions,
+  saveSession,
+  saveBodyMetric,
+  queueSyncAction,
+  runAllSyncs,
+  revalidateSessionsAgainstPlan,
+  getCurrentWeekDateBounds,
+} from './db';
 import { getLocalDateString, getLocalIsoString } from '../utils/date';
 import { calculateSetWorkVolume, isBandExercise, getResistanceBand } from './exerciseLibrary';
 
@@ -367,6 +375,9 @@ export const normalizePlanItem = (item, index = 0) => {
   const status = String(item.status ?? item.Status ?? 'Scheduled');
   const date = item.date || item.Date || '';
   const perfMetric = item.perfMetric || '';
+  const completedWorkoutId = String(
+    item.completedWorkoutId ?? item.Completed_Workout_ID ?? item.sessionId ?? ''
+  ).trim();
 
   // Canonical activity type: 'workout' | 'run' | 'rest'
   const rawActivity = String(item.activityType ?? item.Activity_Type ?? 'workout').toLowerCase();
@@ -482,6 +493,7 @@ export const normalizePlanItem = (item, index = 0) => {
   };
 
   if (date) normalized.date = date;
+  if (completedWorkoutId) normalized.completedWorkoutId = completedWorkoutId;
   if (exerciseTargets.length > 0) normalized.exerciseTargets = exerciseTargets;
   if (item.Day_Number !== undefined) normalized.Day_Number = dayNumber;
   if (item.Day_Label !== undefined) normalized.Day_Label = dayName;
@@ -490,6 +502,7 @@ export const normalizePlanItem = (item, index = 0) => {
   if (item.Activity_Type !== undefined) normalized.Activity_Type = item.Activity_Type;
   if (item.Status !== undefined) normalized.Status = status;
   if (item.Date !== undefined) normalized.Date = date;
+  if (item.Completed_Workout_ID !== undefined) normalized.Completed_Workout_ID = completedWorkoutId;
 
   return normalized;
 };
@@ -663,8 +676,8 @@ export const ingestBackendSyncBundle = async (rawPayload) => {
   // 3. Ingest Sessions & Sibling Sets
   const rawSessions = unwrapped.sessions || unwrapped.Sessions;
   const rawSets = unwrapped.sets || unwrapped.Sets || [];
-  if (Array.isArray(rawSessions) && rawSessions.length > 0) {
-    const joinedSessions = joinSessionsAndSets(rawSessions, rawSets);
+  if (Array.isArray(rawSessions)) {
+    const joinedSessions = rawSessions.length > 0 ? joinSessionsAndSets(rawSessions, rawSets) : [];
     results.sessions = joinedSessions;
     results.sets = rawSets;
 
@@ -684,6 +697,14 @@ export const ingestBackendSyncBundle = async (rawPayload) => {
         })
       );
     }
+  }
+
+  // Re-validate local IndexedDB sessions and completion caches against latest Plan and Sessions
+  if (results.plan || Array.isArray(rawSessions)) {
+    await revalidateSessionsAgainstPlan(results.plan || [], {
+      remoteSessions: Array.isArray(rawSessions) ? results.sessions || [] : null,
+      authoritativePlan: Boolean(results.plan && results.plan.length > 0),
+    }).catch(() => {});
   }
 
   // 4. Ingest Body Metrics
@@ -1168,14 +1189,18 @@ export const reconcileAndMergeSessions = (sessionsList = []) => {
     if (!session || cachedPlanList.length === 0) return session;
     const sDate = session.date || (session.startedAt ? session.startedAt.split('T')[0] : '');
     const sDayNum = session.dayNumber ?? session.day_index ?? session.planDayNumber;
-    const matchedPlan = cachedPlanList.find((p) => {
-      const pDate = p.date || p.Date;
-      if (pDate && sDate && pDate === sDate) return true;
-      if (sDayNum != null && (p.dayNumber === sDayNum || p.Day_Number === sDayNum)) {
-        if (!pDate || pDate === sDate) return true;
-      }
-      return false;
-    });
+    const matchedPlan =
+      (sDate
+        ? cachedPlanList.find((p) => {
+            const pDate = p.date || p.Date;
+            return Boolean(pDate && pDate === sDate);
+          })
+        : null) ||
+      cachedPlanList.find((p) => {
+        const pDate = p.date || p.Date;
+        if (pDate) return false;
+        return sDayNum != null && (p.dayNumber === sDayNum || p.Day_Number === sDayNum);
+      });
 
     if (matchedPlan) {
       const pTitle = matchedPlan.title || matchedPlan.Workout_Title;
@@ -1554,14 +1579,34 @@ export const fetchWeeklyPlan = async (options) => {
     // fallback
   }
 
-  // Local-first: if cached plan exists and network is not forced, return immediately (zero network requests)
-  if (!forceNetwork && cachedPlan) {
+  const { weekDateSet } = getCurrentWeekDateBounds();
+  const isStaleDatedCache =
+    Boolean(cachedPlan && cachedPlan.length > 0) &&
+    cachedPlan.every((p) => {
+      const d = p?.date || p?.Date;
+      return Boolean(d && !weekDateSet.has(d));
+    });
+
+  // Local-first: if cached plan exists for the active week and network is not forced, return immediately (zero network requests)
+  if (!forceNetwork && cachedPlan && !isStaleDatedCache) {
     return cachedPlan;
   }
 
   const endpointUrl = overrideUrl || getApiUrl();
   const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
   if (!endpointUrl || isOffline) {
+    if (isStaleDatedCache && cachedPlan) {
+      return cachedPlan.map((p) => ({
+        ...p,
+        date: undefined,
+        Date: undefined,
+        status: 'Scheduled',
+        Status: 'Scheduled',
+        completedWorkoutId: undefined,
+        Completed_Workout_ID: undefined,
+        perfMetric: '',
+      }));
+    }
     return cachedPlan || DEFAULT_WEEKLY_PLAN;
   }
 
@@ -1618,6 +1663,14 @@ export const fetchWeeklyPlan = async (options) => {
         localStorage.setItem(STORAGE_KEY_PLAN, JSON.stringify(normalizedPlan));
       } catch {
         // ignore
+      }
+      await revalidateSessionsAgainstPlan(normalizedPlan, {
+        authoritativePlan: true,
+      }).catch(() => {});
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('apexfit:plan-updated', { detail: normalizedPlan })
+        );
       }
       return normalizedPlan;
     }

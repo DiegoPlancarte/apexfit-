@@ -1,11 +1,29 @@
 import { getExerciseCues, getResistanceBand } from '../src/services/exerciseLibrary';
-import { getWeekDates, formatWeekRange } from '../src/components/Dashboard/hooks';
+import {
+  getWeekDates,
+  formatWeekRange,
+  matchSessionToPlanDay,
+  isSessionCompatibleWithPlanDay,
+} from '../src/components/Dashboard/hooks';
 import {
   normalizeWeeklyPlan,
   normalizeSessionRecord,
   reconcileAndMergeSessions,
+  ingestBackendSyncBundle,
   STORAGE_KEY_PLAN,
 } from '../src/services/api';
+import {
+  openDB,
+  STORES,
+  saveSession,
+  getSessions,
+  clearSyncOutbox,
+  queueSyncAction,
+  revalidateSessionsAgainstPlan,
+  STORAGE_KEY_COMPLETED_DAYS,
+  STORAGE_KEY_PERF_METRICS,
+  STORAGE_KEY_ACTIVE_WEEK_MONDAY,
+} from '../src/services/db';
 
 describe('Week Navigation and Plan Isolation Verification', () => {
   beforeEach(() => {
@@ -233,6 +251,253 @@ describe('Week Navigation and Plan Isolation Verification', () => {
       const nov16Items = multiWeekPlan.filter((item) => setNov16.has(item.date));
       expect(nov16Items).toHaveLength(1);
       expect(nov16Items[0].title).toBe('Nov 16 Future Lifting');
+    });
+  });
+
+  describe('4. Stale Local Cache Invalidation & Re-validation Against Plan Data', () => {
+    beforeEach(async () => {
+      await clearSyncOutbox();
+      const db = await openDB();
+      const tx = db.transaction([STORES.SESSIONS, STORES.SYNC_OUTBOX], 'readwrite');
+      tx.objectStore(STORES.SESSIONS).clear();
+      tx.objectStore(STORES.SYNC_OUTBOX).clear();
+      await new Promise((resolve) => {
+        tx.oncomplete = resolve;
+      });
+    });
+
+    test('invalidates stale localStorage completedDayNumbers and perfMetrics when week rolls over', async () => {
+      // Simulate mobile state persisted from previous week (Monday Nov 9, 2026)
+      localStorage.setItem(STORAGE_KEY_ACTIVE_WEEK_MONDAY, '2026-11-09');
+      localStorage.setItem(STORAGE_KEY_COMPLETED_DAYS, JSON.stringify([1, 2]));
+      localStorage.setItem(
+        STORAGE_KEY_PERF_METRICS,
+        JSON.stringify({ 1: '12,000 lbs total volume • 12 sets' })
+      );
+      localStorage.setItem(
+        STORAGE_KEY_PLAN,
+        JSON.stringify([
+          { dayNumber: 1, title: 'Upper Body A', activityType: 'workout', status: 'Completed' },
+        ])
+      );
+
+      // Revalidate on Monday Nov 16, 2026
+      const result = await revalidateSessionsAgainstPlan([], {
+        referenceDate: '2026-11-16',
+      });
+
+      expect(result.weekRolledOver).toBe(true);
+      expect(localStorage.getItem(STORAGE_KEY_ACTIVE_WEEK_MONDAY)).toBe('2026-11-16');
+      expect(JSON.parse(localStorage.getItem(STORAGE_KEY_COMPLETED_DAYS) || '[]')).toEqual([]);
+      expect(JSON.parse(localStorage.getItem(STORAGE_KEY_PERF_METRICS) || '{}')).toEqual({});
+
+      const resetPlan = JSON.parse(localStorage.getItem(STORAGE_KEY_PLAN));
+      expect(resetPlan[0].status).toBe('Scheduled');
+    });
+
+    test('re-validates and removes stale local sessions when latest fetched Plan row is Scheduled, while preserving pending outbox sessions', async () => {
+      // 1. Seed a stale cached session for Monday Nov 16 that is NOT in sync_outbox and NOT in backend
+      await saveSession({
+        sessionId: 'stale_mobile_sess_1',
+        date: '2026-11-16',
+        workoutName: 'Upper Body Hypertrophy',
+        type: 'workout',
+        dayNumber: 1,
+        totalVolumeLbs: 8500,
+        totalSets: 9,
+      });
+
+      // 2. Seed an offline session for Tuesday Nov 17 that IS queued in sync_outbox
+      const pendingOfflineSess = {
+        sessionId: 'pending_offline_sess_2',
+        date: '2026-11-17',
+        workoutName: 'Lower Body Strength',
+        type: 'workout',
+        dayNumber: 2,
+        totalVolumeLbs: 11200,
+        totalSets: 10,
+      };
+      await saveSession(pendingOfflineSess);
+      await queueSyncAction('logWorkoutSession', { session: pendingOfflineSess, sets: [] });
+
+      localStorage.setItem(STORAGE_KEY_COMPLETED_DAYS, JSON.stringify([1, 2]));
+
+      // 3. Backend returns Plan showing both Nov 16 and Nov 17 as "Scheduled"
+      const latestPlan = normalizeWeeklyPlan([
+        {
+          Day_Number: 1,
+          Date: '2026-11-16',
+          Workout_Title: 'Upper Body Hypertrophy',
+          Activity_Type: 'Lifting',
+          Status: 'Scheduled',
+          Completed_Workout_ID: '',
+        },
+        {
+          Day_Number: 2,
+          Date: '2026-11-17',
+          Workout_Title: 'Lower Body Strength',
+          Activity_Type: 'Lifting',
+          Status: 'Scheduled',
+          Completed_Workout_ID: '',
+        },
+      ]);
+
+      const reval = await revalidateSessionsAgainstPlan(latestPlan, {
+        referenceDate: '2026-11-16',
+        authoritativePlan: true,
+      });
+
+      // Day 1 was invalidated and its stale local session removed
+      expect(reval.invalidatedDays).toContain(1);
+      expect(reval.removedSessionIds).toContain('stale_mobile_sess_1');
+
+      // Day 2 has a pending outbox mutation so it is preserved!
+      expect(reval.removedSessionIds).not.toContain('pending_offline_sess_2');
+
+      const remainingSessions = await getSessions();
+      expect(remainingSessions.map((s) => s.sessionId)).toEqual(['pending_offline_sess_2']);
+      expect(JSON.parse(localStorage.getItem(STORAGE_KEY_COMPLETED_DAYS))).toEqual([2]);
+    });
+
+    test('ingestBackendSyncBundle reconciles IndexedDB with backend sessions and Scheduled Plan rows', async () => {
+      // Seed an orphaned local session not present on backend
+      await saveSession({
+        sessionId: 'orphan_local_sess',
+        date: '2026-11-16',
+        workoutName: 'Orphan Workout',
+        type: 'workout',
+        dayNumber: 1,
+      });
+      localStorage.setItem(STORAGE_KEY_COMPLETED_DAYS, JSON.stringify([1]));
+
+      await ingestBackendSyncBundle({
+        status: 'ok',
+        data: {
+          plan: [
+            {
+              Day_Number: 1,
+              Date: '2026-11-16',
+              Workout_Title: 'Fresh Scheduled Monday',
+              Activity_Type: 'Lifting',
+              Status: 'Scheduled',
+              Completed_Workout_ID: '',
+            },
+          ],
+          sessions: [],
+          sets: [],
+        },
+      });
+
+      const idbSessions = await getSessions();
+      expect(idbSessions).toHaveLength(0);
+      expect(JSON.parse(localStorage.getItem(STORAGE_KEY_COMPLETED_DAYS))).toEqual([]);
+    });
+  });
+
+  describe('5. Dashboard Session Matching Integrity (Strict Active Week Date Bounds)', () => {
+    const nov16WeekDates = getWeekDates(new Date(2026, 10, 16), '2026-11-16');
+    const nov16WeekSet = new Set(nov16WeekDates.map((w) => w.dateStr));
+    const mondayMeta = nov16WeekDates[0]; // 2026-11-16, dayNumber: 1
+
+    const scheduledMondayCard = {
+      dayNumber: 1,
+      date: '2026-11-16',
+      title: 'Upper Body Hypertrophy',
+      activityType: 'workout',
+      status: 'Scheduled',
+    };
+
+    test('does NOT match historical sessions from previous weeks even when dayNumber, planDayNumber, or workoutName match', () => {
+      const lastWeekSession = {
+        sessionId: 'sess_prev_week_mon',
+        date: '2026-11-09', // Previous week Monday!
+        workoutName: 'Upper Body Hypertrophy',
+        type: 'workout',
+        dayNumber: 1,
+        planDayNumber: 1,
+        day_index: 1,
+        totalVolumeLbs: 14200,
+        totalSets: 12,
+      };
+
+      const match = matchSessionToPlanDay(
+        scheduledMondayCard,
+        mondayMeta,
+        [lastWeekSession],
+        nov16WeekSet
+      );
+
+      expect(match).toBeNull();
+    });
+
+    test('does NOT match a session with a matching sessionId if the session date falls outside active week bounds', () => {
+      const cardWithStaleId = {
+        ...scheduledMondayCard,
+        completedWorkoutId: 'sess_old_id_1',
+      };
+      const oldSession = {
+        sessionId: 'sess_old_id_1',
+        date: '2026-11-02', // 2 weeks ago
+        workoutName: 'Upper Body Hypertrophy',
+        type: 'workout',
+      };
+
+      const match = matchSessionToPlanDay(
+        cardWithStaleId,
+        mondayMeta,
+        [oldSession],
+        nov16WeekSet
+      );
+
+      expect(match).toBeNull();
+    });
+
+    test('does NOT match passive wearable walks or zero-volume wearable entries to scheduled lifting or run cards', () => {
+      const passiveWalk = {
+        sessionId: 'wearable_walk_1',
+        date: '2026-11-16',
+        workoutName: 'Walk',
+        type: 'walk',
+        Workout_Type: 'Walk',
+        rawSource: 'Pixel Watch / Google Health',
+        distanceMiles: 1.1,
+      };
+
+      const runCard = {
+        dayNumber: 1,
+        date: '2026-11-16',
+        title: 'Zone 2 Recovery Run',
+        activityType: 'run',
+        status: 'Scheduled',
+      };
+
+      expect(isSessionCompatibleWithPlanDay(passiveWalk, scheduledMondayCard)).toBe(false);
+      expect(isSessionCompatibleWithPlanDay(passiveWalk, runCard)).toBe(false);
+      expect(
+        matchSessionToPlanDay(runCard, mondayMeta, [passiveWalk], nov16WeekSet)
+      ).toBeNull();
+    });
+
+    test('correctly matches a valid completed session whose date strictly matches the active week card date', () => {
+      const validTodaySession = {
+        sessionId: 'sess_today_valid',
+        date: '2026-11-16',
+        workoutName: 'Upper Body Hypertrophy',
+        type: 'workout',
+        dayNumber: 1,
+        totalVolumeLbs: 15000,
+        totalSets: 12,
+      };
+
+      const match = matchSessionToPlanDay(
+        scheduledMondayCard,
+        mondayMeta,
+        [validTodaySession],
+        nov16WeekSet
+      );
+
+      expect(match).not.toBeNull();
+      expect(match.sessionId).toBe('sess_today_valid');
     });
   });
 });
