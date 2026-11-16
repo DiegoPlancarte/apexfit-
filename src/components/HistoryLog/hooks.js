@@ -97,6 +97,8 @@ export const useComponentLogic = () => {
 
   const todayMondayIso = formatDateToIso(getMondayOfWeek(new Date()));
   const isCurrentWeek = activeStartDate === todayMondayIso;
+  const isPastWeek = activeStartDate < todayMondayIso;
+  const isFutureWeek = activeStartDate > todayMondayIso;
 
   // Load archive strictly from local IndexedDB (zero network requests on tab navigation)
   useEffect(() => {
@@ -353,6 +355,8 @@ export const useComponentLogic = () => {
     activeEndDate,
     activeDateRangeLabel,
     isCurrentWeek,
+    isPastWeek,
+    isFutureWeek,
     viewScope,
     setViewScope,
     handlePrevWeek,

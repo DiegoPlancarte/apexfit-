@@ -64,6 +64,27 @@ export const secondsToPace = (seconds) => {
  * @param {number|null} [totalDistanceMiles=null] - Total run distance in miles to determine final partial split
  * @returns {Array<{ id: string, label: string, pace: string, paceSeconds: number, isFastest: boolean, isSlowest: boolean, barPercent: number, splitDistance: number, isFullMile: boolean }>}
  */
+/**
+ * Formats a delta differential into standard ±M:SS pace convention.
+ * e.g., +163s -> "+2:43", -366s -> "-6:06", +89s -> "+1:29", -10s -> "-0:10", 0s -> "0:00"
+ *
+ * @param {number} deltaSeconds
+ * @returns {string|null}
+ */
+export const formatDeltaPace = (deltaSeconds) => {
+  if (deltaSeconds === null || deltaSeconds === undefined || Number.isNaN(deltaSeconds)) return null;
+  const abs = Math.abs(Math.round(deltaSeconds));
+  const m = Math.floor(abs / 60);
+  const s = abs % 60;
+  const formatted = `${m}:${s < 10 ? '0' : ''}${s}`;
+  if (deltaSeconds < 0) {
+    return `-${formatted}`;
+  } else if (deltaSeconds > 0) {
+    return `+${formatted}`;
+  }
+  return '0:00';
+};
+
 export const parseSplits = (splitsStr, totalDistanceMiles = null) => {
   if (!splitsStr || typeof splitsStr !== 'string') return [];
 
@@ -161,43 +182,61 @@ export const parseSplits = (splitsStr, totalDistanceMiles = null) => {
     }));
   }
 
-  // Only full or near-full miles (distance >= 0.95 mi) compete for the fastest badge
-  const eligibleFastestPaces = rawParsed
-    .filter((s) => s.isFullMile && s.paceSeconds > 0)
-    .map((s) => s.paceSeconds);
+  // Only full or near-full miles (distance >= 0.95 mi) compete for fastest, slowest, and pace comparisons
+  const eligibleFullMiles = rawParsed.filter((s) => s.isFullMile && s.paceSeconds > 0);
+  const comparisonPaces =
+    eligibleFullMiles.length > 0
+      ? eligibleFullMiles
+      : rawParsed.filter((s) => s.paceSeconds > 0);
 
+  const eligibleFastestPaces = comparisonPaces.map((s) => s.paceSeconds);
   const minSec = eligibleFastestPaces.length > 0 ? Math.min(...eligibleFastestPaces) : null;
-  const maxSec = Math.max(...validPaces);
+  const maxSec = eligibleFastestPaces.length > 0 ? Math.max(...eligibleFastestPaces) : null;
   const avgSeconds = Math.round(
-    validPaces.reduce((sum, val) => sum + val, 0) / validPaces.length
+    comparisonPaces.reduce((sum, s) => sum + s.paceSeconds, 0) / comparisonPaces.length
   );
 
   return rawParsed.map((s) => {
-    // Partial final splits under 0.95 miles are excluded from winning the fastest badge
+    // Partial final splits under 0.95 miles are completely excluded from competing for fastest split,
+    // delta color coding (green/orange), and relative pace comparisons.
+    if (!s.isFullMile) {
+      return {
+        ...s,
+        isFastest: false,
+        isSlowest: false,
+        barPercent: 50,
+        avgSeconds,
+        deltaSeconds: 0,
+        deltaFormatted: null,
+        deltaType: 'neutral',
+      };
+    }
+
     const isFastest =
-      s.isFullMile &&
       s.paceSeconds > 0 &&
       minSec !== null &&
       s.paceSeconds === minSec &&
-      validPaces.length > 1;
+      comparisonPaces.length > 1;
 
-    const isSlowest = s.paceSeconds > 0 && s.paceSeconds === maxSec && validPaces.length > 1;
+    const isSlowest =
+      s.paceSeconds > 0 &&
+      maxSec !== null &&
+      s.paceSeconds === maxSec &&
+      comparisonPaces.length > 1;
 
     let deltaSeconds = 0;
     let deltaFormatted = null;
-    let deltaType = 'even'; // 'faster' | 'slower' | 'even'
+    let deltaType = 'neutral'; // 'faster' | 'slower' | 'neutral'
 
-    if (s.paceSeconds > 0 && validPaces.length > 1) {
+    if (s.paceSeconds > 0 && comparisonPaces.length > 1) {
       deltaSeconds = s.paceSeconds - avgSeconds;
+      deltaFormatted = formatDeltaPace(deltaSeconds);
       if (deltaSeconds < 0) {
-        deltaFormatted = `${deltaSeconds}s`; // e.g. "-10s" (faster than average)
         deltaType = 'faster';
       } else if (deltaSeconds > 0) {
-        deltaFormatted = `+${deltaSeconds}s`; // e.g. "+12s" (slower than average)
         deltaType = 'slower';
       } else {
-        deltaFormatted = '0s';
-        deltaType = 'even';
+        deltaType = 'neutral';
       }
     }
 
@@ -228,7 +267,8 @@ export const parseSplits = (splitsStr, totalDistanceMiles = null) => {
  */
 export const getAverageSplitPace = (parsedSplits) => {
   if (!Array.isArray(parsedSplits) || parsedSplits.length === 0) return null;
-  const valid = parsedSplits.filter((s) => s.paceSeconds > 0);
+  const fullMiles = parsedSplits.filter((s) => s.isFullMile && s.paceSeconds > 0);
+  const valid = fullMiles.length > 0 ? fullMiles : parsedSplits.filter((s) => s.paceSeconds > 0);
   if (valid.length === 0) return null;
   const avgSec = Math.round(valid.reduce((sum, s) => sum + s.paceSeconds, 0) / valid.length);
   return `${secondsToPace(avgSec)} /mi`;

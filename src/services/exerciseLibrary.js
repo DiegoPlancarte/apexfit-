@@ -90,6 +90,48 @@ export const RESISTANCE_BANDS = [
   },
 ];
 
+/**
+ * Retrieves calibrated HB-AB01 resistance band specifications by level name, id, color, or tension.
+ *
+ * @param {string|number|Object} identifier - e.g. "Light", "hb-ab01-light", "Red", 37.5
+ * @returns {Object|null} The matched band configuration from RESISTANCE_BANDS or null
+ */
+export const getResistanceBand = (identifier) => {
+  if (identifier === null || identifier === undefined || identifier === '') return null;
+  if (typeof identifier === 'object' && identifier?.level && identifier?.avgTension) {
+    return identifier;
+  }
+
+  const str = String(identifier).trim().toLowerCase();
+
+  // 1. Direct ID match
+  const byId = RESISTANCE_BANDS.find((b) => b.id.toLowerCase() === str);
+  if (byId) return byId;
+
+  // 2. Level match (case-insensitive, handling hyphens / spaces e.g. "x-light", "xlight", "x light")
+  const cleanLevelStr = str.replace(/[^a-z0-9]/g, '');
+  const byLevel = RESISTANCE_BANDS.find(
+    (b) =>
+      b.level.toLowerCase() === str ||
+      b.level.toLowerCase().replace(/[^a-z0-9]/g, '') === cleanLevelStr
+  );
+  if (byLevel) return byLevel;
+
+  // 3. Color match (e.g. "yellow", "red", "black", "purple", "green")
+  const byColor = RESISTANCE_BANDS.find((b) => b.color.toLowerCase() === str);
+  if (byColor) return byColor;
+
+  // 4. Numeric tension match (within minTension - maxTension or closest avgTension)
+  const num = Number(identifier);
+  if (Number.isFinite(num) && num > 0) {
+    const inRange = RESISTANCE_BANDS.find((b) => num >= b.minTension && num <= b.maxTension);
+    if (inRange) return inRange;
+  }
+
+  return null;
+};
+
+
 export const EXERCISE_LIBRARY = [
   // CHEST
   { id: 'barbell-bench-press', name: 'Barbell Bench Press', muscleGroup: 'Chest', equipment: 'Barbell' },

@@ -188,10 +188,12 @@ export default function RunDetailsModal(props) {
                 {parsedSplits.map((split) => (
                   <div
                     key={split.id}
-                    className={`split-card-row ${split.isFastest ? 'split-card-fastest' : ''}`}
+                    className={`split-card-row ${split.isFastest ? 'split-card-fastest' : ''} ${!split.isFullMile ? 'split-card-partial' : ''}`}
                   >
                     <div className="split-card-left">
-                      <span className="split-mile-pill">{split.label}</span>
+                      <span className={`split-mile-pill ${!split.isFullMile ? 'split-mile-pill-partial' : ''}`}>
+                        {split.label}
+                      </span>
                       {split.isFastest && (
                         <span className="split-fastest-tag" title="Fastest Mile Split">
                           ⚡ Fastest
@@ -203,7 +205,7 @@ export default function RunDetailsModal(props) {
                       {split.deltaFormatted && (
                         <span
                           className={`split-delta-badge split-delta-${split.deltaType}`}
-                          title={`${Math.abs(split.deltaSeconds)}s ${split.deltaType === 'faster' ? 'faster' : 'slower'} than average`}
+                          title={`${split.deltaFormatted.replace(/^[+-]/, '')} ${split.deltaType === 'faster' ? 'faster' : 'slower'} than average`}
                         >
                           {split.deltaFormatted}
                         </span>

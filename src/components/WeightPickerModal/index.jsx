@@ -180,7 +180,7 @@ export default function WeightPickerModal(props) {
                 {resistanceBandsList.map((band) => {
                   const isCurrent =
                     selectedBand?.id === band.id ||
-                    (weightNum >= band.minTension && weightNum <= band.maxTension);
+                    (!selectedBand && weightNum >= band.minTension && weightNum <= band.maxTension);
 
                   return (
                     <button
@@ -246,7 +246,9 @@ export default function WeightPickerModal(props) {
             onClick={handleApply}
             disabled={Boolean(inputError)}
           >
-            Set {weightNum} lbs
+            {equipmentType === 'band' && selectedBand
+              ? `Set ${selectedBand.level} (${weightNum} lbs)`
+              : `Set ${weightNum} lbs`}
           </button>
         </div>
       </div>

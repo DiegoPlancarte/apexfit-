@@ -6,7 +6,7 @@
 
 import { getSessions, saveSession, saveBodyMetric, queueSyncAction, runAllSyncs } from './db';
 import { getLocalDateString, getLocalIsoString } from '../utils/date';
-import { calculateSetWorkVolume } from './exerciseLibrary';
+import { calculateSetWorkVolume, isBandExercise, getResistanceBand } from './exerciseLibrary';
 
 export { runAllSyncs };
 
@@ -246,7 +246,7 @@ export const buildWorkoutPayload = (workoutState) => {
     Total_Volume_Lbs: totalVolumeLbs,
     Started_At: startedAt,
     Ended_At: endedAt,
-    Notes: workoutState.notes || '',
+    Notes: workoutState.notes || workoutState.workoutDescription || workoutState.description || '',
 
     // Internal application aliases for backwards compatibility
     sessionId,
@@ -258,7 +258,7 @@ export const buildWorkoutPayload = (workoutState) => {
     durationSec,
     totalSets: completedSets.length,
     totalVolumeLbs,
-    notes: workoutState.notes || '',
+    notes: workoutState.notes || workoutState.workoutDescription || workoutState.description || '',
     planDayNumber: dayIndex,
     dayNumber: dayIndex,
     day_index: dayIndex,
@@ -404,6 +404,61 @@ export const normalizePlanItem = (item, index = 0) => {
       exerciseTargets = rawJson;
     }
   }
+
+  // Normalize each exercise target to preserve and standardize preset weights and band levels
+  exerciseTargets = exerciseTargets.map((t) => {
+    if (!t || typeof t !== 'object') return t;
+    const exerciseName = String(t.exercise || t.exerciseName || t.name || '').trim();
+    const rawWeight =
+      t.target_weight_lbs ??
+      t.target_weight ??
+      t.weight_lbs ??
+      t.weight ??
+      t.targetWeightLbs ??
+      t.targetWeight ??
+      null;
+
+    const rawBand =
+      t.band_level ??
+      t.bandLevel ??
+      t.band ??
+      t.band_color ??
+      t.bandColor ??
+      t.resistance_band ??
+      t.resistanceBand ??
+      null;
+
+    let targetWeightLbs =
+      rawWeight !== null && rawWeight !== '' && !Number.isNaN(Number(rawWeight))
+        ? Number(rawWeight)
+        : rawWeight !== null && rawWeight !== ''
+        ? rawWeight
+        : undefined;
+
+    let bandLevel = rawBand ? String(rawBand).trim() : undefined;
+
+    // If it's a resistance band exercise, harmonize band classification and tension weight
+    if (isBandExercise(exerciseName)) {
+      const bandObj = getResistanceBand(rawBand || rawWeight);
+      if (bandObj) {
+        bandLevel = bandObj.level;
+        if (targetWeightLbs === undefined || targetWeightLbs === null) {
+          targetWeightLbs = bandObj.avgTension;
+        }
+      }
+    }
+
+    const normalizedTarget = { ...t };
+    if (targetWeightLbs !== undefined) {
+      normalizedTarget.target_weight_lbs = targetWeightLbs;
+      normalizedTarget.targetWeightLbs = targetWeightLbs;
+    }
+    if (bandLevel !== undefined) {
+      normalizedTarget.band_level = bandLevel;
+      normalizedTarget.bandLevel = bandLevel;
+    }
+    return normalizedTarget;
+  });
 
   if (Array.isArray(item.targetExercises) && item.targetExercises.length > 0) {
     targetExercises = item.targetExercises;
@@ -735,11 +790,13 @@ export const normalizeSessionRecord = (session) => {
   const workoutName =
     session.workoutName ||
     session.Workout_Name ||
+    session.Workout_Title ||
+    session.workout_title ||
     session.title ||
     session.Workout_Type ||
     'Workout Session';
   const notes =
-    session.notes || session.Notes || '';
+    session.notes || session.Notes || session.description || session.Description || '';
 
   // Calculate duration in seconds and minutes
   const durationSec =
@@ -857,6 +914,33 @@ export const normalizeSessionRecord = (session) => {
     exercises = groupSetsIntoExercises(session.sets);
   } else if (Array.isArray(session.Sets) && session.Sets.length > 0) {
     exercises = groupSetsIntoExercises(session.Sets);
+  } else if (session.Exercises_JSON || session.exercises_json) {
+    const rawJson = session.Exercises_JSON || session.exercises_json;
+    let parsedTargets = [];
+    if (typeof rawJson === 'string' && rawJson.trim()) {
+      try {
+        const parsed = JSON.parse(rawJson);
+        if (Array.isArray(parsed)) parsedTargets = parsed;
+      } catch {
+        // ignore
+      }
+    } else if (Array.isArray(rawJson)) {
+      parsedTargets = rawJson;
+    }
+    if (parsedTargets.length > 0) {
+      exercises = parsedTargets.map((t) => ({
+        exerciseName: t.exercise || t.exerciseName || t.name || 'Exercise',
+        sets: Array.from({ length: Number(t.target_sets || t.sets || 1) }, (_, sIdx) => ({
+          setNumber: sIdx + 1,
+          weightLbs: Number(t.target_weight_lbs ?? t.target_weight ?? t.weight ?? 0),
+          reps: t.target_reps ?? t.reps ?? 0,
+          rir: t.target_rir ?? t.rir ?? null,
+          setActiveSec: null,
+          restAfterSec: Number(t.rest_sec || 0) || null,
+          completed: false,
+        })),
+      }));
+    }
   }
 
   // Recalculate or fallback total volume and total sets
@@ -1068,6 +1152,63 @@ export const reconcileAndMergeSessions = (sessionsList = []) => {
 
   const normalizedList = sessionsList.map(normalizeSessionRecord);
 
+  // Enrich sessions from historical Plan rows (pull Workout_Title, description, structure)
+  let cachedPlanList = [];
+  try {
+    const rawPlan = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_PLAN) : null;
+    if (rawPlan) {
+      const parsed = JSON.parse(rawPlan);
+      if (Array.isArray(parsed)) cachedPlanList = parsed;
+    }
+  } catch {
+    // ignore
+  }
+
+  const enrichSessionFromPlan = (session) => {
+    if (!session || cachedPlanList.length === 0) return session;
+    const sDate = session.date || (session.startedAt ? session.startedAt.split('T')[0] : '');
+    const sDayNum = session.dayNumber ?? session.day_index ?? session.planDayNumber;
+    const matchedPlan = cachedPlanList.find((p) => {
+      const pDate = p.date || p.Date;
+      if (pDate && sDate && pDate === sDate) return true;
+      if (sDayNum != null && (p.dayNumber === sDayNum || p.Day_Number === sDayNum)) {
+        if (!pDate || pDate === sDate) return true;
+      }
+      return false;
+    });
+
+    if (matchedPlan) {
+      const pTitle = matchedPlan.title || matchedPlan.Workout_Title;
+      if (
+        pTitle &&
+        (!session.workoutName ||
+          session.workoutName === 'Workout Session' ||
+          session.workoutName === 'Strength' ||
+          session.workoutName === 'Lifting')
+      ) {
+        session.workoutName = pTitle;
+        session.Workout_Name = pTitle;
+        session.Workout_Title = pTitle;
+      }
+      const pDesc = matchedPlan.description || matchedPlan.Description;
+      if (pDesc && !session.notes) {
+        session.notes = pDesc;
+        session.Notes = pDesc;
+      }
+      if (
+        (!session.exercises || session.exercises.length === 0) &&
+        Array.isArray(matchedPlan.exerciseTargets) &&
+        matchedPlan.exerciseTargets.length > 0
+      ) {
+        session.exercises = matchedPlan.exerciseTargets.map((t) => ({
+          exerciseName: t.exercise || t.exerciseName || t.name || 'Exercise',
+          sets: [],
+        }));
+      }
+    }
+    return session;
+  };
+
   const isWearableOnly = (s) => {
     if (s.isMergedTelemetry) return false;
     if (!isWearableSource(s)) return false;
@@ -1086,7 +1227,7 @@ export const reconcileAndMergeSessions = (sessionsList = []) => {
     if (isWearableOnly(s)) {
       wearableCandidates.push(s);
     } else {
-      activeSessions.push({ ...s });
+      activeSessions.push(enrichSessionFromPlan({ ...s }));
     }
   }
 
@@ -1199,9 +1340,9 @@ export const reconcileAndMergeSessions = (sessionsList = []) => {
     }
   }
 
-  const unmatchedWearables = wearableCandidates.filter(
-    (w) => !matchedWearableIds.has(w.sessionId)
-  );
+  const unmatchedWearables = wearableCandidates
+    .filter((w) => !matchedWearableIds.has(w.sessionId))
+    .map(enrichSessionFromPlan);
 
   const combined = [...activeSessions, ...unmatchedWearables];
 
@@ -1494,22 +1635,28 @@ export const fetchWeeklyPlan = async (options) => {
  * @param {string} status - 'Completed' | 'Scheduled'
  * @param {string} [overrideUrl]
  */
-export const updatePlanDayStatus = async (dayNumber, status = 'Completed', overrideUrl) => {
-  const endpointUrl = overrideUrl || getApiUrl();
+export const updatePlanDayStatus = async (dayNumber, status = 'Completed', overrideUrl, options = {}) => {
+  const endpointUrl = typeof overrideUrl === 'string' && overrideUrl.startsWith('http') ? overrideUrl : getApiUrl();
+  const date = options.date || (typeof overrideUrl === 'object' ? overrideUrl?.date : undefined);
   if (!endpointUrl) return null;
 
   try {
+    const payload = {
+      action: 'updatePlanStatus',
+      dayNumber: Number(dayNumber),
+      status,
+      updatedAt: getLocalIsoString(),
+    };
+    if (date) {
+      payload.date = date;
+    }
+
     const response = await fetch(endpointUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'text/plain;charset=utf-8',
       },
-      body: JSON.stringify({
-        action: 'updatePlanStatus',
-        dayNumber: Number(dayNumber),
-        status,
-        updatedAt: getLocalIsoString(),
-      }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) return null;

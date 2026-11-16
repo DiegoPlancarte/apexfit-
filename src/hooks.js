@@ -19,7 +19,7 @@ import {
   ensureDatabaseSeeded,
   extractProgressiveOverloadHistory,
 } from './services/db';
-import { getExerciseCues } from './services/exerciseLibrary';
+import { getExerciseCues, isBandExercise, getResistanceBand } from './services/exerciseLibrary';
 
 const STORAGE_KEY_ACTIVE_WORKOUT = 'workout_tracker_active_session_v1';
 const STORAGE_KEY_LAST_HISTORY = 'workout_tracker_last_history_v1';
@@ -39,11 +39,17 @@ const DEFAULT_EXERCISE_REST = {
 
 const createSetRecord = (exerciseName, setNumber, defaults = {}) => {
   const activeSec = defaults.active_sec ?? defaults.Active_Sec ?? defaults.setActiveSec ?? defaults.Set_Active_Sec ?? null;
+  const bandLevel = defaults.band_level ?? defaults.bandLevel ?? null;
+  const targetWeight = defaults.targetWeightLbs ?? defaults.target_weight_lbs ?? null;
   return {
     id: `set_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
     exerciseName,
     setNumber,
     weightLbs: defaults.weightLbs ?? '',
+    bandLevel,
+    band_level: bandLevel,
+    targetWeightLbs: targetWeight,
+    target_weight_lbs: targetWeight,
     reps: defaults.reps ?? '',
     rir: defaults.rir ?? 2,
     setActiveSec: activeSec,
@@ -526,8 +532,12 @@ export const useComponentLogic = () => {
         if (ex.id !== exerciseId) return ex;
         const lastSet = ex.sets[ex.sets.length - 1];
         const nextSetNumber = ex.sets.length + 1;
+        const fallbackWeight = ex.targetWeightLbs ?? ex.target_weight_lbs ?? '';
+        const fallbackBand = ex.bandLevel ?? ex.band_level ?? null;
         const newSet = createSetRecord(ex.exerciseName, nextSetNumber, {
-          weightLbs: lastSet ? lastSet.weightLbs : '',
+          weightLbs: lastSet && lastSet.weightLbs !== '' ? lastSet.weightLbs : fallbackWeight,
+          bandLevel: lastSet ? (lastSet.bandLevel || lastSet.band_level || fallbackBand) : fallbackBand,
+          targetWeightLbs: fallbackWeight !== '' ? fallbackWeight : null,
           reps: lastSet ? lastSet.reps : '',
           rir: lastSet ? lastSet.rir : 2,
           setActiveSec: null,
@@ -917,6 +927,43 @@ export const useComponentLogic = () => {
               ? Number(targetConfig.target_rir)
               : 2;
 
+          // Preset weight & band ingestion from targetConfig (Exercises_JSON)
+          const rawPresetWeight =
+            targetConfig?.target_weight_lbs ??
+            targetConfig?.target_weight ??
+            targetConfig?.weight_lbs ??
+            targetConfig?.weight ??
+            targetConfig?.targetWeightLbs ??
+            targetConfig?.targetWeight ??
+            null;
+
+          const rawBandLevel =
+            targetConfig?.band_level ??
+            targetConfig?.bandLevel ??
+            targetConfig?.band ??
+            targetConfig?.band_color ??
+            targetConfig?.bandColor ??
+            targetConfig?.resistance_band ??
+            targetConfig?.resistanceBand ??
+            null;
+
+          const isBand = isBandExercise(exerciseName);
+          let resolvedBandLevel = rawBandLevel ? String(rawBandLevel).trim() : null;
+          let resolvedPresetWeight =
+            rawPresetWeight !== null && rawPresetWeight !== '' && !Number.isNaN(Number(rawPresetWeight))
+              ? Number(rawPresetWeight)
+              : null;
+
+          if (isBand) {
+            const bandObj = getResistanceBand(rawBandLevel || rawPresetWeight);
+            if (bandObj) {
+              resolvedBandLevel = bandObj.level;
+              if (resolvedPresetWeight === null) {
+                resolvedPresetWeight = bandObj.avgTension;
+              }
+            }
+          }
+
           const prevSets = lastSessionHistory[exerciseName] || [];
           const initialCount = targetSetsCount || Math.max(2, prevSets.length || 3);
           const restDurationSec = targetRestSec;
@@ -931,10 +978,26 @@ export const useComponentLogic = () => {
               targetConfig?.cue ||
               getExerciseCues(exerciseName) ||
               '',
+            targetWeightLbs: resolvedPresetWeight ?? undefined,
+            target_weight_lbs: resolvedPresetWeight ?? undefined,
+            bandLevel: resolvedBandLevel ?? undefined,
+            band_level: resolvedBandLevel ?? undefined,
             sets: Array.from({ length: initialCount }, (_, sIdx) => {
               const prev = prevSets[sIdx] || prevSets[prevSets.length - 1] || {};
+              // Programmed target weight from Plan takes precedence; fallback to previous session
+              let initialWeight = '';
+              if (resolvedPresetWeight !== null && resolvedPresetWeight !== undefined) {
+                initialWeight = resolvedPresetWeight;
+              } else if (prev.weightLbs !== undefined && prev.weightLbs !== null && prev.weightLbs !== '') {
+                initialWeight = prev.weightLbs;
+              }
+
               return createSetRecord(exerciseName, sIdx + 1, {
-                weightLbs: prev.weightLbs ?? '',
+                weightLbs: initialWeight,
+                bandLevel: resolvedBandLevel || prev.bandLevel || prev.band_level || null,
+                band_level: resolvedBandLevel || prev.bandLevel || prev.band_level || null,
+                targetWeightLbs: resolvedPresetWeight,
+                target_weight_lbs: resolvedPresetWeight,
                 reps: prev.reps ?? parsedTargetReps,
                 rir: prev.rir ?? targetRir,
                 setActiveSec: prev.active_sec ?? prev.setActiveSec ?? null,

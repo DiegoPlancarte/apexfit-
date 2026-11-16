@@ -157,10 +157,11 @@ export const useComponentLogic = ({
     targetSetId: null,
   });
 
-  // Reusable Weight Picker Modal state (for dumbbells, cables, machines)
+  // Reusable Weight Picker Modal state (for dumbbells, cables, machines, bands)
   const [weightPickerState, setWeightPickerState] = useState({
     isOpen: false,
     defaultValue: 25,
+    bandLevel: null,
     targetSetId: null,
   });
 
@@ -222,9 +223,11 @@ export const useComponentLogic = ({
 
   const handleOpenPlateCalc = (weight, setId) => {
     const num = Number(weight);
+    const fallback = exercise.targetWeightLbs ?? exercise.target_weight_lbs ?? 135;
+    const initialWeight = Number.isFinite(num) && num > 0 ? num : Number(fallback) || 135;
     setPlateCalcState({
       isOpen: true,
-      initialWeight: Number.isFinite(num) && num > 0 ? num : 135,
+      initialWeight,
       targetSetId: setId,
     });
   };
@@ -241,10 +244,29 @@ export const useComponentLogic = ({
   };
 
   const handleOpenWeightPicker = (weight, setId) => {
+    const targetSet = exercise.sets?.find((s) => s.id === setId);
     const num = Number(weight);
+    const fallback = exercise.targetWeightLbs ?? exercise.target_weight_lbs ?? null;
+    let initialVal = '';
+    if (Number.isFinite(num) && num > 0) {
+      initialVal = num;
+    } else if (weight !== '' && weight !== null && weight !== undefined && Number.isFinite(num)) {
+      initialVal = num;
+    } else if (fallback !== null && fallback !== undefined && fallback !== '') {
+      initialVal = Number(fallback) || fallback;
+    }
+
+    const bandLevel =
+      targetSet?.bandLevel ||
+      targetSet?.band_level ||
+      exercise.bandLevel ||
+      exercise.band_level ||
+      null;
+
     setWeightPickerState({
       isOpen: true,
-      defaultValue: Number.isFinite(num) && num > 0 ? num : 25,
+      defaultValue: initialVal,
+      bandLevel,
       targetSetId: setId,
     });
   };
@@ -253,9 +275,14 @@ export const useComponentLogic = ({
     setWeightPickerState((prev) => ({ ...prev, isOpen: false }));
   };
 
-  const handleApplyWeightPicker = (chosenWeight) => {
+  const handleApplyWeightPicker = (chosenWeight, chosenBandLevel) => {
     if (weightPickerState.targetSetId) {
-      handleWeightChange(weightPickerState.targetSetId, chosenWeight);
+      const updates = { weightLbs: chosenWeight };
+      if (chosenBandLevel) {
+        updates.bandLevel = chosenBandLevel;
+        updates.band_level = chosenBandLevel;
+      }
+      onUpdateSet(exercise.id, weightPickerState.targetSetId, updates);
     }
     handleCloseWeightPicker();
   };

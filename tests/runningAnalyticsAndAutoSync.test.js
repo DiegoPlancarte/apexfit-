@@ -1,5 +1,6 @@
 import {
   parseSplits,
+  formatDeltaPace,
   DEFAULT_SHOES,
   getStoredShoes,
   purgeMockShoes,
@@ -17,9 +18,10 @@ describe('Running Analytics, Elevation & Auto-Sync Enhancements', () => {
     localStorage.clear();
   });
 
-  describe('1. Full-Mile Split Filtering for Fastest Badge', () => {
-    it('excludes partial final splits (< 0.95 mi) from winning the fastest split designation', () => {
-      // 3.22-mile run: Mile 1 (9:37), Mile 2 (9:03), Mile 3 (9:18), Mile 4 (2:38 for 0.22 mi)
+  describe('1. Full-Mile Split Filtering & Delta Formatting (Excluding Partial Tails)', () => {
+    it('excludes partial final splits (< 0.95 mi) from fastest split, delta tags, and relative comparisons', () => {
+      // 3.22-mile run: Mile 1 (9:37 = 577s), Mile 2 (9:03 = 543s), Mile 3 (9:18 = 558s), Mile 4 (2:38 for 0.22 mi)
+      // Full miles avg = (577 + 543 + 558) / 3 = 559s (9:19)
       const splitsStr = 'M1: 9:37 | M2: 9:03 | M3: 9:18 | M4: 2:38';
       const totalDistanceMiles = 3.22;
 
@@ -31,24 +33,36 @@ describe('Running Analytics, Elevation & Auto-Sync Enhancements', () => {
       expect(parsed[0].isFullMile).toBe(true);
       expect(parsed[0].splitDistance).toBe(1.0);
       expect(parsed[0].isFastest).toBe(false);
+      // Mile 1 delta: 577 - 559 = +18s -> "+0:18" (slower than avg)
+      expect(parsed[0].deltaFormatted).toBe('+0:18');
+      expect(parsed[0].deltaType).toBe('slower');
 
       expect(parsed[1].isFullMile).toBe(true);
       expect(parsed[1].splitDistance).toBe(1.0);
-      // Mile 2 (9:03) is the fastest full mile
+      // Mile 2 (9:03) is fastest full mile; delta: 543 - 559 = -16s -> "-0:16" (faster than avg)
       expect(parsed[1].isFastest).toBe(true);
+      expect(parsed[1].deltaFormatted).toBe('-0:16');
+      expect(parsed[1].deltaType).toBe('faster');
 
       expect(parsed[2].isFullMile).toBe(true);
       expect(parsed[2].splitDistance).toBe(1.0);
       expect(parsed[2].isFastest).toBe(false);
+      // Mile 3 delta: 558 - 559 = -1s -> "-0:01"
+      expect(parsed[2].deltaFormatted).toBe('-0:01');
+      expect(parsed[2].deltaType).toBe('faster');
 
-      // Mile 4 (0.22 mi, 2:38 elapsed) is a partial split: MUST NOT win fastest badge!
+      // Mile 4 (0.22 mi, 2:38 elapsed) is a partial split:
+      // MUST NOT win fastest badge and MUST render in neutral non-competitive state with no green/orange delta tags
       expect(parsed[3].isFullMile).toBe(false);
       expect(parsed[3].splitDistance).toBe(0.22);
       expect(parsed[3].isFastest).toBe(false);
+      expect(parsed[3].isSlowest).toBe(false);
+      expect(parsed[3].deltaFormatted).toBeNull();
+      expect(parsed[3].deltaType).toBe('neutral');
       expect(parsed[3].label).toContain('0.22 mi');
     });
 
-    it('correctly parses explicit partial split notation e.g. Rem (0.19m)', () => {
+    it('correctly parses explicit partial split notation e.g. Rem (0.19m) and neutralizes delta', () => {
       const splitsStr = 'M1: 8:48 | M2: 8:30 | Rem (0.19m): 1:30';
       const parsed = parseSplits(splitsStr);
 
@@ -60,6 +74,8 @@ describe('Running Analytics, Elevation & Auto-Sync Enhancements', () => {
       expect(parsed[2].isFullMile).toBe(false);
       expect(parsed[2].splitDistance).toBe(0.19);
       expect(parsed[2].isFastest).toBe(false);
+      expect(parsed[2].deltaFormatted).toBeNull();
+      expect(parsed[2].deltaType).toBe('neutral');
     });
 
     it('allows full miles near threshold (>= 0.95 mi) to compete for fastest badge', () => {
@@ -70,6 +86,17 @@ describe('Running Analytics, Elevation & Auto-Sync Enhancements', () => {
       expect(parsed[1].isFullMile).toBe(true);
       expect(parsed[1].splitDistance).toBe(0.96);
       expect(parsed[1].isFastest).toBe(true);
+    });
+
+    it('formatDeltaPace converts raw seconds into human-readable ±M:SS pace convention', () => {
+      expect(formatDeltaPace(163)).toBe('+2:43');
+      expect(formatDeltaPace(89)).toBe('+1:29');
+      expect(formatDeltaPace(-366)).toBe('-6:06');
+      expect(formatDeltaPace(-10)).toBe('-0:10');
+      expect(formatDeltaPace(0)).toBe('0:00');
+      expect(formatDeltaPace(null)).toBeNull();
+      expect(formatDeltaPace(undefined)).toBeNull();
+      expect(formatDeltaPace(NaN)).toBeNull();
     });
   });
 

@@ -43,6 +43,8 @@ export default function Dashboard(props) {
     handleSaveWorkoutReview,
     weekRangeDisplay,
     isCurrentWeek,
+    isPastWeek,
+    isFutureWeek,
     handlePrevWeek,
     handleNextWeek,
     handleJumpToCurrentWeek,
@@ -221,25 +223,36 @@ export default function Dashboard(props) {
       {/* Week Header & Action Bar */}
       <section className="weekly-header-row">
         <div>
-          <h2 className="weekly-title">Weekly Fitness Plan</h2>
-          <span className="weekly-subtitle">7-Day Executive Overview</span>
+          <h2 className="weekly-title">
+            {isCurrentWeek
+              ? 'Weekly Fitness Plan'
+              : isPastWeek
+              ? 'Past Training Week'
+              : 'Upcoming Training Week'}
+          </h2>
+          <span className="weekly-subtitle">
+            {isCurrentWeek ? '7-Day Executive Overview' : weekRangeDisplay}
+          </span>
         </div>
 
         <div className="weekly-header-actions">
-          <button
-            type="button"
-            className={`btn-log-run-header ${isReadOnly ? 'opacity-50 cursor-not-allowed' : ''}`}
-            onClick={() => handleOpenRunLogger()}
-            disabled={isReadOnly}
-            title={isReadOnly ? ACTIVE_WORKOUT_GUARD_MESSAGE : 'Manually log a run or cardio session'}
-          >
-            🏃 + Log Run
-          </button>
+          {(!isFutureWeek || enhancedDays.length > 0) && (
+            <button
+              type="button"
+              className={`btn-log-run-header ${isReadOnly ? 'opacity-50 cursor-not-allowed' : ''}`}
+              onClick={() => handleOpenRunLogger()}
+              disabled={isReadOnly}
+              title={isReadOnly ? ACTIVE_WORKOUT_GUARD_MESSAGE : 'Manually log a run or cardio session'}
+            >
+              🏃 + Log Run
+            </button>
+          )}
         </div>
       </section>
 
-      {/* 7-Day Day Selector Bar */}
-      <section className="week-day-tabs">
+      {/* 7-Day Day Selector Bar: Rendered when days exist for this week */}
+      {enhancedDays.length > 0 && (
+        <section className="week-day-tabs">
           {enhancedDays.map((day) => {
             const isSelected = day.dayNumber === selectedDayNumber;
             return (
@@ -259,14 +272,42 @@ export default function Dashboard(props) {
             );
           })}
         </section>
+      )}
 
-        {/* Divider Bar between D1 through D7 and the workout cards */}
+      {/* Divider Bar between D1 through D7 and the workout cards */}
+      {enhancedDays.length > 0 && (
         <div className="dashboard-divider-bar" aria-hidden="true" />
+      )}
       </div>
 
-      {/* Scrollable Bottom Section: 7-Day Schedule Cards */}
+      {/* Scrollable Bottom Section: 7-Day Schedule Cards OR Clean Empty State */}
       <section className="weekly-cards-list" ref={cardsListRef}>
-        {enhancedDays.map((day) => {
+        {enhancedDays.length === 0 ? (
+          <div className="dashboard-empty-week-card">
+            <div className="dashboard-empty-icon" aria-hidden="true">
+              {isPastWeek ? '📜' : '📅'}
+            </div>
+            <h3 className="dashboard-empty-title">
+              {isPastWeek
+                ? 'No historical data recorded for this week'
+                : 'No workout plan scheduled for this week'}
+            </h3>
+            <p className="dashboard-empty-desc">
+              {isPastWeek
+                ? `No workout sessions or plan records were recorded for ${weekRangeDisplay}.`
+                : `No workout plan has been scheduled for ${weekRangeDisplay}.`}
+            </p>
+            <button
+              type="button"
+              className="dashboard-empty-return-btn"
+              onClick={handleJumpToCurrentWeek}
+              disabled={isReadOnly}
+            >
+              Return to Current Week
+            </button>
+          </div>
+        ) : (
+          enhancedDays.map((day) => {
           const isSelected = day.dayNumber === selectedDayNumber;
           const isWorkout = day.activityType === 'workout';
           const isRun = day.activityType === 'run';
@@ -486,7 +527,7 @@ export default function Dashboard(props) {
               </div>
             </article>
           );
-        })}
+        }))}
       </section>
 
       {/* Activity Details Modal (for Run & Rest Days) */}

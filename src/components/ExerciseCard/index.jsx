@@ -68,7 +68,12 @@ export default function ExerciseCard(props) {
             )}
             {isBand && (
               <span className="exercise-type-tag tag-band" title="Continuous loop resistance band (HB-AB01)">
-                HB-AB01 Band
+                HB-AB01 Band{exercise.bandLevel ? ` • ${exercise.bandLevel}` : ''}
+              </span>
+            )}
+            {!isBand && (exercise.targetWeightLbs || exercise.target_weight_lbs) && (
+              <span className="exercise-type-tag tag-preset-weight" title="Programmed target weight">
+                Target: {exercise.targetWeightLbs || exercise.target_weight_lbs} lbs
               </span>
             )}
           </div>
@@ -517,6 +522,7 @@ export default function ExerciseCard(props) {
         onClose={handleCloseWeightPicker}
         defaultValue={weightPickerState.defaultValue}
         exerciseName={exercise.exerciseName}
+        bandLevel={weightPickerState.bandLevel || exercise.bandLevel || exercise.band_level}
         onApplyWeight={handleApplyWeightPicker}
       />
     </article>

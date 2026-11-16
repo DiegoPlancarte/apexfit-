@@ -92,15 +92,27 @@ export const useComponentLogic = ({
     [weekDates]
   );
 
-  const isCurrentWeek = useMemo(() => {
+  const thisMonday = useMemo(() => {
     const now = new Date();
     const day = now.getDay();
     const dist = day === 0 ? -6 : 1 - day;
-    const thisMonday = new Date(now);
-    thisMonday.setDate(now.getDate() + dist);
-    thisMonday.setHours(0, 0, 0, 0);
+    const m = new Date(now);
+    m.setDate(now.getDate() + dist);
+    m.setHours(0, 0, 0, 0);
+    return m;
+  }, []);
+
+  const isCurrentWeek = useMemo(() => {
     return currentMonday.getTime() === thisMonday.getTime();
-  }, [currentMonday]);
+  }, [currentMonday, thisMonday]);
+
+  const isPastWeek = useMemo(() => {
+    return currentMonday.getTime() < thisMonday.getTime();
+  }, [currentMonday, thisMonday]);
+
+  const isFutureWeek = useMemo(() => {
+    return currentMonday.getTime() > thisMonday.getTime();
+  }, [currentMonday, thisMonday]);
 
   const weekRangeDisplay = useMemo(
     () => formatWeekRange(currentMonday),
@@ -649,99 +661,192 @@ export const useComponentLogic = ({
     }
   };
 
-  // Combine plan items with dynamic dates & multi-tier completion status
-  const enhancedDays = weeklyPlan.map((dayItem) => {
-    const dateMeta =
-      weekDates.find((w) => w.dayNumber === dayItem.dayNumber) || {
-        dayNumber: dayItem.dayNumber,
-        formattedDate: dayItem.dayName || `Day ${dayItem.dayNumber}`,
-        isToday: false,
-        dateStr: `day-${dayItem.dayNumber}`,
-      };
+  // Resolve plan and session data strictly for this week window (no duplicate bleeding into adjacent weeks)
+  const weekDateSet = useMemo(() => new Set(weekDates.map((w) => w.dateStr)), [weekDates]);
 
-    const daySteps = Number(stepsMap[dateMeta.dateStr] || 0);
-    const isStepGoalMet = daySteps >= STEP_GOAL;
-    const isRest = dayItem.activityType === 'rest';
+  const weekSessions = useMemo(() => {
+    if (!Array.isArray(loggedSessions)) return [];
+    return loggedSessions.filter((s) => {
+      const sDate = s.date || s.Date || (s.startedAt ? s.startedAt.split('T')[0] : '');
+      return sDate && weekDateSet.has(sDate);
+    });
+  }, [loggedSessions, weekDateSet]);
 
-    // Auto-detect completed matching session from local IndexedDB/history
-    const matchingSession = loggedSessions.find((s) => {
-      if (isRest) return false;
-      const sessDate = s.date || s.Date || (s.startedAt ? s.startedAt.split('T')[0] : '');
-      const sessDayNumber = s.dayNumber ?? s.day_index ?? s.planDayNumber;
+  const rawWeekPlan = useMemo(() => {
+    if (!Array.isArray(weeklyPlan)) return [];
 
-      // 1. Exact date match with compatible activity type
-      if (dateMeta.dateStr && sessDate === dateMeta.dateStr) {
-        if (dayItem.activityType === 'run' && (s.type === 'run' || s.Workout_Type === 'Run' || s.type === 'cardio' || s.type === 'walk')) {
-          return true;
-        }
-        if (dayItem.activityType === 'workout' && s.type !== 'run' && s.type !== 'walk') {
-          return true;
-        }
-      }
-
-      // 2. Explicit plan day link
-      if (sessDayNumber != null && sessDayNumber === dayItem.dayNumber) {
-        if (!sessDate || sessDate === dateMeta.dateStr || isCurrentWeek) {
-          if (dayItem.activityType === 'run' && (s.type === 'run' || s.Workout_Type === 'Run')) return true;
-          if (dayItem.activityType === 'workout' && s.type !== 'run') return true;
-        }
-      }
-
-      // 3. Title match on active training date
-      if (dateMeta.dateStr && sessDate === dateMeta.dateStr && dayItem.title) {
-        const sName = (s.workoutName || s.Workout_Name || '').toLowerCase();
-        if (sName && sName === dayItem.title.toLowerCase()) return true;
-      }
-
-      return false;
+    // 1. If any plan items have explicit calendar dates matching this week, return them
+    const datedItems = weeklyPlan.filter((item) => {
+      const itemDate = item.date || item.Date;
+      return itemDate && weekDateSet.has(itemDate);
     });
 
-    const isWorkoutDone =
-      dayItem.status === 'Completed' ||
-      completedDayNumbers.includes(dayItem.dayNumber) ||
-      Boolean(matchingSession) ||
-      isRest; // Rest day completes workout milestone by resting
-
-    const isFullyComplete = isWorkoutDone && isStepGoalMet;
-
-    let derivedPerf = perfMetricsMap[dayItem.dayNumber] || dayItem.perfMetric || '';
-    if (!derivedPerf && matchingSession) {
-      if (matchingSession.type === 'run' || matchingSession.Workout_Type === 'Run') {
-        const dist = matchingSession.distanceMiles || matchingSession.distance || 0;
-        const pace = matchingSession.avgPace || '';
-        const elev = matchingSession.elevationGainFt ? ` • ⛰️ +${Math.round(matchingSession.elevationGainFt)} ft` : '';
-        derivedPerf = `${dist} mi${pace ? ' • ' + pace : ''}${elev}`;
-      } else {
-        const vol = Number(matchingSession.totalVolumeLbs || matchingSession.Total_Volume_Lbs || 0);
-        const sets = Number(
-          matchingSession.totalSets ||
-            matchingSession.Total_Sets ||
-            (matchingSession.exercises ? matchingSession.exercises.reduce((sum, ex) => sum + (ex.sets?.length || 0), 0) : 0)
-        );
-        if (vol > 0 || sets > 0) {
-          derivedPerf = `${vol.toLocaleString()} lbs total volume • ${sets} sets`;
-        }
-      }
+    if (datedItems.length > 0) {
+      return datedItems;
     }
 
-    const perfMetric = derivedPerf;
+    // 2. Generic undated plan items belong ONLY to the active current week
+    if (isCurrentWeek) {
+      return weeklyPlan;
+    }
 
-    const restHabits = restHabitsMap[dayItem.dayNumber] || {
-      mobilityDone: false,
-      hydrationDone: false,
-    };
+    // 3. For adjacent past/future weeks without dedicated plan records, do NOT duplicate
+    return [];
+  }, [weeklyPlan, weekDateSet, isCurrentWeek]);
 
-    return {
-      ...dayItem,
-      dateMeta,
-      daySteps,
-      perfMetric,
-      restHabits,
-      isStepGoalMet,
-      isWorkoutDone,
-      isFullyComplete,
-    };
-  });
+  // Combine plan items with dynamic dates & multi-tier completion status
+  const enhancedDays = useMemo(() => {
+    if (rawWeekPlan.length > 0) {
+      return rawWeekPlan.map((dayItem) => {
+        const dateMeta =
+          weekDates.find((w) => w.dayNumber === dayItem.dayNumber || (dayItem.date && w.dateStr === dayItem.date)) || {
+            dayNumber: dayItem.dayNumber,
+            formattedDate: dayItem.dayName || `Day ${dayItem.dayNumber}`,
+            isToday: false,
+            dateStr: `day-${dayItem.dayNumber}`,
+          };
+
+        const daySteps = Number(stepsMap[dateMeta.dateStr] || 0);
+        const isStepGoalMet = daySteps >= STEP_GOAL;
+        const isRest = dayItem.activityType === 'rest';
+
+        // Auto-detect completed matching session from local IndexedDB/history
+        const matchingSession = loggedSessions.find((s) => {
+          if (isRest) return false;
+          const sessDate = s.date || s.Date || (s.startedAt ? s.startedAt.split('T')[0] : '');
+          const sessDayNumber = s.dayNumber ?? s.day_index ?? s.planDayNumber;
+
+          // 1. Exact date match with compatible activity type
+          if (dateMeta.dateStr && sessDate === dateMeta.dateStr) {
+            if (dayItem.activityType === 'run' && (s.type === 'run' || s.Workout_Type === 'Run' || s.type === 'cardio' || s.type === 'walk')) {
+              return true;
+            }
+            if (dayItem.activityType === 'workout' && s.type !== 'run' && s.type !== 'walk') {
+              return true;
+            }
+          }
+
+          // 2. Explicit plan day link (for current week)
+          if (sessDayNumber != null && sessDayNumber === dayItem.dayNumber) {
+            if (!sessDate || sessDate === dateMeta.dateStr || isCurrentWeek) {
+              if (dayItem.activityType === 'run' && (s.type === 'run' || s.Workout_Type === 'Run')) return true;
+              if (dayItem.activityType === 'workout' && s.type !== 'run') return true;
+            }
+          }
+
+          // 3. Title match on active training date
+          if (dateMeta.dateStr && sessDate === dateMeta.dateStr && dayItem.title) {
+            const sName = (s.workoutName || s.Workout_Name || '').toLowerCase();
+            if (sName && sName === dayItem.title.toLowerCase()) return true;
+          }
+
+          return false;
+        });
+
+        const isWorkoutDone =
+          dayItem.status === 'Completed' ||
+          completedDayNumbers.includes(dayItem.dayNumber) ||
+          Boolean(matchingSession) ||
+          isRest;
+
+        const isFullyComplete = isWorkoutDone && isStepGoalMet;
+
+        let derivedPerf = perfMetricsMap[dayItem.dayNumber] || dayItem.perfMetric || '';
+        if (!derivedPerf && matchingSession) {
+          if (matchingSession.type === 'run' || matchingSession.Workout_Type === 'Run') {
+            const dist = matchingSession.distanceMiles || matchingSession.distance || 0;
+            const pace = matchingSession.avgPace || '';
+            const elev = matchingSession.elevationGainFt ? ` • ⛰️ +${Math.round(matchingSession.elevationGainFt)} ft` : '';
+            derivedPerf = `${dist} mi${pace ? ' • ' + pace : ''}${elev}`;
+          } else {
+            const vol = Number(matchingSession.totalVolumeLbs || matchingSession.Total_Volume_Lbs || 0);
+            const sets = Number(
+              matchingSession.totalSets ||
+                matchingSession.Total_Sets ||
+                (matchingSession.exercises ? matchingSession.exercises.reduce((sum, ex) => sum + (ex.sets?.length || 0), 0) : 0)
+            );
+            if (vol > 0 || sets > 0) {
+              derivedPerf = `${vol.toLocaleString()} lbs total volume • ${sets} sets`;
+            }
+          }
+        }
+
+        const perfMetric = derivedPerf;
+        const restHabits = restHabitsMap[dayItem.dayNumber] || {
+          mobilityDone: false,
+          hydrationDone: false,
+        };
+
+        return {
+          ...dayItem,
+          dateMeta,
+          daySteps,
+          perfMetric,
+          restHabits,
+          isStepGoalMet,
+          isWorkoutDone,
+          isFullyComplete,
+        };
+      });
+    }
+
+    // If past week has logged sessions but no standalone plan, render days from logged sessions
+    if (isPastWeek && weekSessions.length > 0) {
+      return weekSessions.map((session, sIdx) => {
+        const sessDate = session.date || session.Date || (session.startedAt ? session.startedAt.split('T')[0] : '');
+        const dateMeta = weekDates.find((w) => w.dateStr === sessDate) || {
+          dayNumber: session.dayNumber || sIdx + 1,
+          formattedDate: sessDate || `Session ${sIdx + 1}`,
+          isToday: false,
+          dateStr: sessDate,
+        };
+
+        const isRun = session.type === 'run' || session.Workout_Type === 'Run';
+        const daySteps = Number(stepsMap[dateMeta.dateStr] || 0);
+        const isStepGoalMet = daySteps >= STEP_GOAL;
+
+        let perfMetric = '';
+        if (isRun) {
+          const dist = session.distanceMiles || session.distance || 0;
+          const pace = session.avgPace || '';
+          const elev = session.elevationGainFt ? ` • ⛰️ +${Math.round(session.elevationGainFt)} ft` : '';
+          perfMetric = `${dist} mi${pace ? ' • ' + pace : ''}${elev}`;
+        } else {
+          const vol = Number(session.totalVolumeLbs || session.Total_Volume_Lbs || 0);
+          const sets = Number(
+            session.totalSets ||
+              session.Total_Sets ||
+              (session.exercises ? session.exercises.reduce((sum, ex) => sum + (ex.sets?.length || 0), 0) : 0)
+          );
+          if (vol > 0 || sets > 0) {
+            perfMetric = `${vol.toLocaleString()} lbs total volume • ${sets} sets`;
+          }
+        }
+
+        return {
+          id: session.id || session.sessionId,
+          sessionId: session.id || session.sessionId,
+          dayNumber: dateMeta.dayNumber || sIdx + 1,
+          dayName: dateMeta.formattedDate,
+          title: session.workoutName || session.Workout_Name || (isRun ? 'Completed Run' : 'Lifting Session'),
+          badgeLabel: isRun ? 'Run' : 'Strength',
+          description: session.notes || 'Logged historical session',
+          activityType: isRun ? 'run' : 'workout',
+          status: 'Completed',
+          perfMetric,
+          targetExercises: session.exercises ? session.exercises.map((e) => e.exerciseName) : [],
+          dateMeta,
+          daySteps,
+          isStepGoalMet,
+          isWorkoutDone: true,
+          isFullyComplete: true,
+        };
+      });
+    }
+
+    // No plan and no sessions for this week -> empty state
+    return [];
+  }, [rawWeekPlan, weekDates, stepsMap, loggedSessions, completedDayNumbers, isCurrentWeek, isPastWeek, weekSessions, perfMetricsMap, restHabitsMap]);
 
   const stepProgressPct = Math.min(100, Math.round((currentDaySteps / STEP_GOAL) * 100));
   const isSelectedDayFullyComplete =
@@ -852,6 +957,9 @@ export const useComponentLogic = ({
     onBlockedAction,
     currentMonday,
     isCurrentWeek,
+    isPastWeek,
+    isFutureWeek,
+    hasDataForWeek: enhancedDays.length > 0,
     weekRangeDisplay,
     handlePrevWeek,
     handleNextWeek,

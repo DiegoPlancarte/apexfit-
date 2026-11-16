@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import {
   RESISTANCE_BANDS,
+  getResistanceBand,
   getExerciseMeta,
   isDualImplementExercise,
   isUnilateralExercise,
@@ -97,24 +98,59 @@ export const useComponentLogic = ({
   maxValue = 500,
   stepValue = 5,
   exerciseName = '',
+  bandLevel = null,
 }) => {
-  const [weightInput, setWeightInput] = useState(() => {
-    const num = Number(defaultValue);
-    return Number.isFinite(num) && num > 0 ? String(num) : '25';
-  });
+  const equipmentType = useMemo(() => detectEquipmentType(exerciseName), [exerciseName]);
 
-  // Track prop updates without calling setState inside an effect
-  const [prevDefault, setPrevDefault] = useState(defaultValue);
-  if (defaultValue !== prevDefault) {
-    setPrevDefault(defaultValue);
+  const resolveInitialBand = useCallback(() => {
+    if (equipmentType !== 'band') return null;
+    return (
+      getResistanceBand(bandLevel) ||
+      getResistanceBand(defaultValue) ||
+      RESISTANCE_BANDS[2]
+    );
+  }, [equipmentType, bandLevel, defaultValue]);
+
+  const resolveInitialWeightInput = useCallback(() => {
     const num = Number(defaultValue);
-    setWeightInput(Number.isFinite(num) && num > 0 ? String(num) : '25');
+    if (Number.isFinite(num) && num > 0) {
+      return String(num);
+    }
+    if (equipmentType === 'band') {
+      const b = resolveInitialBand();
+      if (b) return String(b.avgTension);
+    }
+    return defaultValue !== '' && defaultValue !== null && defaultValue !== undefined && !Number.isNaN(num)
+      ? String(num)
+      : '25';
+  }, [defaultValue, equipmentType, resolveInitialBand]);
+
+  const [weightInput, setWeightInput] = useState(resolveInitialWeightInput);
+  const [selectedBand, setSelectedBand] = useState(resolveInitialBand);
+
+  // Sync state when props change
+  const [prevDefault, setPrevDefault] = useState(defaultValue);
+  const [prevBandLevel, setPrevBandLevel] = useState(bandLevel);
+
+  if (defaultValue !== prevDefault || bandLevel !== prevBandLevel) {
+    setPrevDefault(defaultValue);
+    setPrevBandLevel(bandLevel);
+    const newBand = resolveInitialBand();
+    setSelectedBand(newBand);
+    const num = Number(defaultValue);
+    if (Number.isFinite(num) && num > 0) {
+      setWeightInput(String(num));
+    } else if (equipmentType === 'band' && newBand) {
+      setWeightInput(String(newBand.avgTension));
+    } else if (defaultValue !== '' && defaultValue !== null && defaultValue !== undefined && !Number.isNaN(num)) {
+      setWeightInput(String(num));
+    } else {
+      setWeightInput('25');
+    }
   }
 
   // Active step size (e.g. 2.5 or 5)
   const [activeStep, setActiveStep] = useState(stepValue || 5);
-
-  const equipmentType = useMemo(() => detectEquipmentType(exerciseName), [exerciseName]);
 
   const isDual = useMemo(() => isDualImplementExercise(exerciseName), [exerciseName]);
   const isUnilat = useMemo(() => isUnilateralExercise(exerciseName), [exerciseName]);
@@ -151,15 +187,6 @@ export const useComponentLogic = ({
         return GENERAL_PRESETS;
     }
   }, [equipmentType]);
-
-  const [selectedBand, setSelectedBand] = useState(() => {
-    if (equipmentType !== 'band') return null;
-    const num = Number(defaultValue) || 0;
-    return (
-      RESISTANCE_BANDS.find((b) => num >= b.minTension && num <= b.maxTension) ||
-      RESISTANCE_BANDS[2]
-    );
-  });
 
   const handleSelectBand = useCallback((band) => {
     setSelectedBand(band);
@@ -222,10 +249,11 @@ export const useComponentLogic = ({
     if (inputError) return;
     if (onApplyWeight) {
       const rounded = roundToHalf(weightNum);
-      onApplyWeight(Number(rounded) || 0);
+      const bandToApply = selectedBand?.level || null;
+      onApplyWeight(Number(rounded) || 0, bandToApply);
     }
     onClose?.();
-  }, [inputError, onApplyWeight, weightNum, onClose]);
+  }, [inputError, onApplyWeight, weightNum, selectedBand, onClose]);
 
   const handleBackdropClick = useCallback(
     (e) => {

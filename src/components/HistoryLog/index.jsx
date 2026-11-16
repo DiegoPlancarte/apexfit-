@@ -23,6 +23,8 @@ export default function HistoryLog(props) {
     activeStartDate,
     activeDateRangeLabel,
     isCurrentWeek,
+    isPastWeek,
+    isFutureWeek,
     viewScope,
     setViewScope,
     handlePrevWeek,
@@ -467,10 +469,12 @@ export default function HistoryLog(props) {
                             ).map((split) => (
                               <div
                                 key={split.id}
-                                className={`split-card-row ${split.isFastest ? 'split-card-fastest' : ''}`}
+                                className={`split-card-row ${split.isFastest ? 'split-card-fastest' : ''} ${!split.isFullMile ? 'split-card-partial' : ''}`}
                               >
                                 <div className="split-card-left">
-                                  <span className="split-mile-pill">{split.label}</span>
+                                  <span className={`split-mile-pill ${!split.isFullMile ? 'split-mile-pill-partial' : ''}`}>
+                                    {split.label}
+                                  </span>
                                   {split.isFastest && (
                                     <span className="split-fastest-tag" title="Fastest Split">
                                       ⚡ Fastest
@@ -482,7 +486,7 @@ export default function HistoryLog(props) {
                                   {split.deltaFormatted && (
                                     <span
                                       className={`split-delta-badge split-delta-${split.deltaType}`}
-                                      title={`${Math.abs(split.deltaSeconds)}s ${split.deltaType === 'faster' ? 'faster' : 'slower'} than average`}
+                                      title={`${split.deltaFormatted.replace(/^[+-]/, '')} ${split.deltaType === 'faster' ? 'faster' : 'slower'} than average`}
                                     >
                                       {split.deltaFormatted}
                                     </span>
@@ -554,12 +558,18 @@ export default function HistoryLog(props) {
               <div className="history-empty-card">
                 <p>
                   {viewScope === 'week'
-                    ? `No workouts recorded for this week (${activeDateRangeLabel}).`
+                    ? isPastWeek
+                      ? 'No historical data recorded for this week.'
+                      : isFutureWeek
+                      ? 'No workout plan scheduled for this week.'
+                      : `No workouts recorded for this week (${activeDateRangeLabel}).`
                     : 'No historical workout sessions recorded yet.'}
                 </p>
                 <span>
                   {viewScope === 'week'
-                    ? 'Use the arrows (‹ / ›) to browse past weeks, or tap "Today" to log your current session!'
+                    ? isPastWeek || isFutureWeek
+                      ? `No session logs found for ${activeDateRangeLabel}. Use ‹ / › or tap "Today" to return to active logs.`
+                      : 'Use the arrows (‹ / ›) to browse past weeks, or tap "Today" to log your current session!'
                     : 'Complete a workout to log your first entry!'}
                 </span>
               </div>
